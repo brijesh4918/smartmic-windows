@@ -64,8 +64,11 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <PropertyGroup>
-    <!-- InfVerif.dll is missing on CI runners; skip verification there. -->
-    <InfVerifEnabled>false</InfVerifEnabled>
+    <!-- Skip built-in verification/packaging since build-driver.bat does it -->
+    <RunInfVerif>false</RunInfVerif>
+    <InfVerif_Enable>false</InfVerif_Enable>
+    <RunInf2Cat>false</RunInf2Cat>
+    <Inf2Cat_Enable>false</Inf2Cat_Enable>
   </PropertyGroup>
   <!-- Disable MSBuild's automatic test signing — build-driver.bat signs with /fd sha256 -->
   <PropertyGroup>
