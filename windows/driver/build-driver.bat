@@ -21,21 +21,25 @@ if not exist "%OUT%\smartmic.sys" (
 
 echo.
 echo === 2/4  Creating a test certificate ========================================
-REM  Development only. Production uses the EV certificate and Microsoft
-REM  attestation signing -- see docs/adr/ADR-010-driver-signing-and-release.md.
-certutil -store Root SmartMicTestCert >nul 2>&1
-if errorlevel 1 (
-    makecert -r -pe -ss PrivateCertStore -n "CN=SmartMicTestCert" SmartMicTestCert.cer
-    certutil -addstore Root SmartMicTestCert.cer
-    certutil -addstore TrustedPublisher SmartMicTestCert.cer
+if "%CI%"=="true" (
+    echo     Skipping test certificate creation in CI environment.
 ) else (
-    echo     certificate already present, reusing it
+    REM  Development only. Production uses the EV certificate and Microsoft
+    REM  attestation signing -- see docs/adr/ADR-010-driver-signing-and-release.md.
+    certutil -store Root SmartMicTestCert >nul 2>&1
+    if errorlevel 1 (
+        makecert -r -pe -ss PrivateCertStore -n "CN=SmartMicTestCert" SmartMicTestCert.cer
+        certutil -addstore Root SmartMicTestCert.cer
+        certutil -addstore TrustedPublisher SmartMicTestCert.cer
+    ) else (
+        echo     certificate already present, reusing it
+    )
 )
 
 echo.
 echo === 3/4  Building the catalog ===============================================
 
-REM Find inf2cat and signtool since they are not in PATH on the CI runner
+REM Find inf2cat, signtool, and stampinf since they are not in PATH on the CI runner
 set INF2CAT=inf2cat
 set SIGNTOOL=signtool
 for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\inf2cat.exe" 2^>nul') do set INF2CAT="%%i"
@@ -53,10 +57,14 @@ if errorlevel 1 (popd & goto :failed)
 
 echo.
 echo === 4/4  Signing ============================================================
-%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.cat
-if errorlevel 1 (popd & goto :failed)
-%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.sys
-if errorlevel 1 (popd & goto :failed)
+if "%CI%"=="true" (
+    echo     Skipping driver signing in CI environment.
+) else (
+    %SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.cat
+    if errorlevel 1 (popd & goto :failed)
+    %SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.sys
+    if errorlevel 1 (popd & goto :failed)
+)
 popd
 
 echo.
