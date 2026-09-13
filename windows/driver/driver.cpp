@@ -150,7 +150,11 @@ static NTSTATUS SmartMicStartDevice(_In_ PDEVICE_OBJECT DeviceObject,
 {
     PAGED_CODE();
     SmTrace("StartDevice");
-    return SmartMicInstallSubdevices(DeviceObject, Irp, ResourceList);
+    NTSTATUS status = SmartMicInstallSubdevices(DeviceObject, Irp, ResourceList);
+    if (NT_SUCCESS(status) && g_SmartMicContext != NULL && g_SmartMicContext->interfaceRegistered) {
+        IoSetDeviceInterfaceState(&g_SmartMicContext->interfaceName, TRUE);
+    }
+    return status;
 }
 
 static NTSTATUS SmartMicPnpHandler(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
@@ -229,7 +233,6 @@ extern "C" NTSTATUS SmartMicAddDevice(_In_ PDRIVER_OBJECT DriverObject,
                                        NULL,
                                        &ctx->interfaceName);
     if (NT_SUCCESS(status)) {
-        IoSetDeviceInterfaceState(&ctx->interfaceName, TRUE);
         ctx->interfaceRegistered = TRUE;
     } else {
         /* The endpoint still works; only the service's private channel is
