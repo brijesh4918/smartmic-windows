@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)
+    add_compile_definitions(_USE_MATH_DEFINES NOMINMAX)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
