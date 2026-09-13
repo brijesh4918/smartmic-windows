@@ -122,7 +122,22 @@ int main(int argc, char** argv) {
     const auto chosen = registry.resolveEffectiveInput();
     if (!chosen) { std::fprintf(stderr, "no usable capture device\n"); return 1; }
     local = std::make_shared<WasapiCaptureSource>("local", chosen->id);
-    sink = std::make_shared<WasapiRenderSink>("cable", opt.outWav);   // --out = render device id
+    
+    std::string outDeviceId = opt.outWav;
+    if (outDeviceId == "smartmic-output.wav") {
+        outDeviceId = "";
+        for (const auto& dev : enumerator.enumerateRender()) {
+            if (dev.isSmartMicEndpoint) {
+                outDeviceId = dev.id;
+                break;
+            }
+        }
+        if (outDeviceId.empty()) {
+            std::fprintf(stderr, "Smart Microphone driver not found! Ensure the driver is installed.\n");
+            return 1;
+        }
+    }
+    sink = std::make_shared<WasapiRenderSink>("cable", outDeviceId);
 #else
     registry.setDevices({
         DeviceInfo{"{local}", "Simulated local microphone (317 Hz)", true, false, 48000, 1},
