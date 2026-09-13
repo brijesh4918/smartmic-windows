@@ -26,11 +26,34 @@ jobs:
         working-directory: windows/driver
         run: .\build-driver.bat
 
+      # An unsigned kernel driver installs happily and then never loads, which
+      # is exactly the failure this repository already shipped once. Fail the
+      # build here instead of finding out on the target machine.
+      - name: Verify the package is signed
+        shell: pwsh
+        working-directory: windows/driver
+        run: |
+          $out = if (Test-Path "x64\Release\smartmic\smartmic.sys") { "x64\Release\smartmic" } else { "x64\Release" }
+          foreach ($f in @("smartmic.sys", "smartmic.cat", "smartmic.inf", "SmartMicTestCert.cer")) {
+            if (-not (Test-Path "$out\$f")) { throw "missing from the package: $f" }
+          }
+          foreach ($f in @("smartmic.sys", "smartmic.cat")) {
+            $sig = Get-AuthenticodeSignature "$out\$f"
+            Write-Host "$f -> $($sig.Status)  $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -eq "NotSigned") { throw "$f is NOT SIGNED -- it could never load" }
+          }
+          Write-Host "package contents:"
+          Get-ChildItem $out | Select-Object Name, Length | Format-Table -AutoSize
+
       - name: Upload compiled driver artifact
         uses: actions/upload-artifact@v4
         with:
           name: SmartMic-Driver
+          # The whole output folder: msbuild puts the package either directly
+          # in Release or in a Release\smartmic subfolder depending on the
+          # toolchain, and both layouts are covered this way.
           path: windows/driver/x64/Release/
+          if-no-files-found: error
 
   build-service:
     runs-on: windows-2022
@@ -47,10 +70,44 @@ jobs:
       - name: Build Windows Service
         run: cmake --build build --config Release
 
+      - name: Stage the service package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item build\apps\Release\* staging\ -Recurse -Force
+          # vcpkg puts the runtime DLLs next to the exe; make sure they travel.
+          Get-ChildItem staging | Select-Object Name, Length | Format-Table -AutoSize
+          @"
+SmartMic service
+================
+
+First run this, before anything else:
+
+    smartmic-service.exe --diagnose
+
+It reports whether the SmartMic driver is installed, whether Windows loaded
+it, and whether its control interface is available -- and tells you which of
+those is the problem.
+
+Normal use (needs the driver installed):
+
+    smartmic-service.exe --port 47820
+
+Test without the driver -- pairs a phone and records to a WAV file, so you can
+prove the phone half works before fighting the driver:
+
+    smartmic-service.exe --port 47820 --sink wav --out C:\Users\Public\test.wav
+
+Options:
+    --sink auto     driver if present, otherwise a WAV file  (default)
+    --sink driver   driver only; fail with a diagnosis if it is missing
+    --sink wav      always a WAV file
+    --sink cable    a third-party virtual cable, by device id in --out
+"@ | Set-Content -Encoding UTF8 staging\README.txt
+
       - name: Upload compiled service artifact
         uses: actions/upload-artifact@v4
         with:
           name: SmartMic-Service
-          path: build/apps/Release/
-
-
+          path: staging/
+          if-no-files-found: error

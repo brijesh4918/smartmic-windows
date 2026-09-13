@@ -50,6 +50,7 @@ if(WIN32)
         platform/windows/wasapi_capture_source.cpp
         platform/windows/wasapi_render_sink.cpp
         platform/windows/smartmic_driver_link.cpp
+        platform/windows/driver_diagnostics.cpp
     )
     target_include_directories(smartmic_platform_windows PUBLIC platform/windows)
     target_link_libraries(smartmic_platform_windows PUBLIC smartmic_core ole32 oleaut32 uuid winmm avrt setupapi)

@@ -1,7 +1,10 @@
 @echo off
 REM ---------------------------------------------------------------------------
 REM  Installs the SmartMic virtual microphone.
-REM  Run as ADMINISTRATOR, from the folder containing smartmic.sys/.inf/.cat.
+REM
+REM  Run as ADMINISTRATOR, from the folder containing smartmic.sys / .inf / .cat
+REM  / SmartMicTestCert.cer  (that is the folder you unzipped from the GitHub
+REM  Actions artifact).
 REM ---------------------------------------------------------------------------
 setlocal
 
@@ -13,51 +16,81 @@ if errorlevel 1 (
     exit /b 1
 )
 
+cd /d "%~dp0"
+
 if not exist smartmic.inf (
-    echo smartmic.inf not found. Run this from the build output folder.
+    echo smartmic.inf not found next to this script.
+    echo Run it from the unzipped artifact folder.
     pause
     exit /b 1
 )
+if not exist smartmic.sys ( echo smartmic.sys is missing. & pause & exit /b 1 )
+if not exist smartmic.cat ( echo smartmic.cat is missing -- the package is unsigned. & pause & exit /b 1 )
 
 echo.
-echo Checking test signing...
+echo === 1/4  Trusting the test certificate ======================================
+if not exist SmartMicTestCert.cer (
+    echo SmartMicTestCert.cer is missing from this folder.
+    echo Windows will refuse to load a driver it cannot verify.
+    pause
+    exit /b 1
+)
+REM  The driver is signed with a certificate this machine has never seen. Both
+REM  stores are needed: Root so the signature chain validates, TrustedPublisher
+REM  so the install does not stop to ask.
+certutil -addstore Root SmartMicTestCert.cer
+certutil -addstore TrustedPublisher SmartMicTestCert.cer
+
+echo.
+echo === 2/4  Test signing =======================================================
+set NEEDREBOOT=
 bcdedit /enum {current} | findstr /i "testsigning" | findstr /i "Yes" >nul
 if errorlevel 1 (
-    echo.
-    echo   Test signing is OFF. A test-signed driver cannot load without it.
-    echo   Enabling it now; you will need to REBOOT before the driver will load.
-    echo.
+    echo     Test signing is OFF. A test-signed driver cannot load without it.
     bcdedit /set testsigning on
+    if errorlevel 1 (
+        echo.
+        echo     Could not enable test signing. If this machine has Secure Boot
+        echo     enabled, turn Secure Boot off in the firmware first -- Windows
+        echo     will not allow test signing while it is on.
+        pause
+        exit /b 1
+    )
     set NEEDREBOOT=1
+    echo     Enabled. A REBOOT is required before the driver can load.
+) else (
+    echo     already on
 )
 
 echo.
-echo Installing the driver package...
+echo === 3/4  Installing the driver package ======================================
 pnputil /add-driver smartmic.inf /install
 if errorlevel 1 goto :failed
 
 echo.
-echo Creating the root-enumerated device node...
-where devcon >nul 2>&1
-if errorlevel 1 (
-    echo   devcon.exe not found on PATH.
-    echo   It ships with the WDK, typically at:
-    echo     C:\Program Files (x86)\Windows Kits\10\Tools\10.0.*\x64\devcon.exe
-    echo   Copy it next to this script and re-run, or add the device manually:
-    echo     Device Manager -^> Action -^> Add legacy hardware -^> "SmartMic Virtual Audio Device"
-    goto :done
+echo === 4/4  Creating the device ================================================
+if exist devcon.exe (
+    devcon.exe install smartmic.inf root\smartmic
+    if errorlevel 1 goto :failed
+) else (
+    echo     devcon.exe is not in this folder. Add the device by hand:
+    echo       Device Manager -^> Action -^> Add legacy hardware -^> Next
+    echo       -^> Install the hardware that I manually select
+    echo       -^> Show All Devices -^> Have Disk -^> point at smartmic.inf
 )
-devcon install smartmic.inf root\smartmic
-if errorlevel 1 goto :failed
 
-:done
 echo.
 echo ============================================================================
 if defined NEEDREBOOT (
-    echo  REBOOT REQUIRED -- test signing was just enabled.
-    echo  After rebooting, open Sound settings and look for "Smart Microphone".
+    echo  REBOOT NOW -- test signing was just switched on, and the driver cannot
+    echo  load until you do. After rebooting, run this script again.
 ) else (
-    echo  Installed. Open Sound settings; you should see "Smart Microphone".
+    echo  Installed. Check it:
+    echo    - Settings -^> System -^> Sound -^> All sound devices -^> "Smart Microphone"
+    echo    - Device Manager -^> Sound, video and game controllers
+    echo.
+    echo  Then confirm the service can see it:
+    echo    smartmic-service.exe --diagnose
 )
 echo ============================================================================
 pause
@@ -65,7 +98,13 @@ exit /b 0
 
 :failed
 echo.
-echo *** INSTALL FAILED. Collect the log with:
-echo       type %%SystemRoot%%\INF\setupapi.dev.log
+echo *** INSTALL FAILED.
+echo.
+echo Send me these two things and I can tell you exactly what went wrong:
+echo   1. everything printed above
+echo   2. the end of this file:  %SystemRoot%\INF\setupapi.dev.log
+echo.
+echo Also useful: Device Manager, find "SmartMic Virtual Audio Device",
+echo double-click it, and copy the text under "Device status".
 pause
 exit /b 1

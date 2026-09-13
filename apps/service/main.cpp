@@ -34,6 +34,7 @@
 #include "wasapi_device_enumerator.h"
 #include "wasapi_render_sink.h"
 #include "smartmic_driver_link.h"
+#include "driver_diagnostics.h"
 #endif
 
 using namespace smartmic;
@@ -79,29 +80,79 @@ std::string localAddressHint() {
     return "127.0.0.1";
 }
 
+// Where the router's output goes.
+//   auto   - the SmartMic driver if it is there, otherwise a WAV file
+//   driver - the SmartMic driver, and fail loudly if it is missing
+//   wav    - a WAV file (works with no driver at all; good for a first test)
+//   cable  - a third-party virtual cable's render endpoint, by device id
+enum class SinkKind { Auto, Driver, Wav, Cable };
+
 struct Options {
     uint16_t port = 47820;
     std::string stateDir;
     std::string outWav = "smartmic-output.wav";
+    SinkKind sink = SinkKind::Auto;
+    std::string cableId;
     int durationSeconds = 0;      // 0 = until interrupted
     std::string forcedCode;       // test hook only
     std::string forcedSession;
+    bool diagnoseOnly = false;
 };
+
+void printUsage() {
+    std::printf(
+        "smartmic-service -- the SmartMic PC service\n\n"
+        "  --port <n>          UDP port to listen on (default 47820)\n"
+        "  --sink <kind>       auto | driver | wav | cable   (default auto)\n"
+        "  --out <path|id>     WAV path for --sink wav, device id for --sink cable\n"
+        "  --duration <secs>   stop after this long (default: run until Ctrl+C)\n"
+        "  --state <dir>       where to keep this PC's identity key\n"
+        "  --diagnose          report the driver's state and exit\n"
+        "  --help\n");
+}
 
 }  // namespace
 
 int main(int argc, char** argv) {
     Options opt;
     opt.stateDir = (fs::temp_directory_path() / "smartmic-service").string();
-    for (int i = 1; i + 1 < argc; i += 2) {
-        const std::string k = argv[i], v = argv[i + 1];
-        if (k == "--port") opt.port = static_cast<uint16_t>(std::stoi(v));
-        else if (k == "--state") opt.stateDir = v;
-        else if (k == "--out") opt.outWav = v;
-        else if (k == "--duration") opt.durationSeconds = std::stoi(v);
-        else if (k == "--code") opt.forcedCode = v;
-        else if (k == "--session") opt.forcedSession = v;
+    for (int i = 1; i < argc; ++i) {
+        const std::string k = argv[i];
+        auto value = [&]() -> std::string {
+            return (i + 1 < argc) ? std::string(argv[++i]) : std::string();
+        };
+        if (k == "--help" || k == "-h") { printUsage(); return 0; }
+        else if (k == "--diagnose") opt.diagnoseOnly = true;
+        else if (k == "--port") opt.port = static_cast<uint16_t>(std::stoi(value()));
+        else if (k == "--state") opt.stateDir = value();
+        else if (k == "--out") opt.outWav = value();
+        else if (k == "--duration") opt.durationSeconds = std::stoi(value());
+        else if (k == "--code") opt.forcedCode = value();
+        else if (k == "--session") opt.forcedSession = value();
+        else if (k == "--sink") {
+            const std::string v = value();
+            if (v == "auto") opt.sink = SinkKind::Auto;
+            else if (v == "driver") opt.sink = SinkKind::Driver;
+            else if (v == "wav") opt.sink = SinkKind::Wav;
+            else if (v == "cable") opt.sink = SinkKind::Cable;
+            else { std::fprintf(stderr, "unknown --sink '%s'\n", v.c_str()); return 2; }
+        }
+        else { std::fprintf(stderr, "unknown option '%s'\n\n", k.c_str()); printUsage(); return 2; }
     }
+
+#if defined(SMARTMIC_HAVE_WASAPI)
+    if (opt.diagnoseOnly) {
+        const auto d = diagnoseDriver();
+        std::printf("SmartMic driver diagnosis\n\n%s", formatDriverDiagnosis(d).c_str());
+        return d.interfacePresent ? 0 : 1;
+    }
+#else
+    if (opt.diagnoseOnly) {
+        std::printf("--diagnose only means something on Windows; there is no "
+                    "SmartMic driver on this platform.\n");
+        return 0;
+    }
+#endif
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
 
@@ -115,6 +166,9 @@ int main(int argc, char** argv) {
     // at all, so it is already started by the time we get to the common start
     // below. Opening it twice would take a second handle on the microphone.
     bool localAlreadyStarted = false;
+    // The driver path has to open the device to know whether it works, so it
+    // may already be started by the time we reach the common start below.
+    bool sinkStarted = false;
 
 #if defined(SMARTMIC_HAVE_WASAPI)
     WasapiDeviceEnumerator enumerator;
@@ -124,10 +178,41 @@ int main(int argc, char** argv) {
     if (!chosen) { std::fprintf(stderr, "no usable capture device\n"); return 1; }
     local = std::make_shared<WasapiCaptureSource>("local", chosen->id);
     
-    if (opt.outWav == "smartmic-output.wav") {
-        sink = std::make_shared<SmartMicDriverLink>("driver");
-    } else {
+    // Pick the output explicitly rather than inferring it from whether --out
+    // happens to still be the default -- that was impossible to reason about.
+    if (opt.sink == SinkKind::Cable) {
         sink = std::make_shared<WasapiRenderSink>("cable", opt.outWav);
+    } else if (opt.sink == SinkKind::Wav) {
+        sink = std::make_shared<host::WavFileSink>("wav", opt.outWav);
+    } else {
+        auto link = std::make_shared<SmartMicDriverLink>("driver");
+        if (link->start()) {
+            sink = link;
+            sinkStarted = true;
+            std::printf("  output     Smart Microphone (driver v%u)\n", link->driverVersion());
+        } else if (opt.sink == SinkKind::Driver) {
+            // The user asked for the driver specifically, so do not silently
+            // do something else -- explain and stop.
+            const auto d = diagnoseDriver();
+            std::fprintf(stderr, "\nCannot use the SmartMic driver.\n\n%s\n",
+                         formatDriverDiagnosis(d).c_str());
+            return 1;
+        } else {
+            // Auto: keep running. Everything except the hand-off to Windows
+            // still works, which is enough to pair a phone and hear the result.
+            const auto d = diagnoseDriver();
+            std::printf("\n--------------------------------------------------------------\n");
+            std::printf("%s", formatDriverDiagnosis(d).c_str());
+            std::printf("\n  Falling back to recording into a file, so you can still pair\n"
+                        "  the phone and check the audio. Teams and Zoom will NOT see a\n"
+                        "  SmartMic microphone until the driver loads.\n");
+            std::printf("  Run with --sink driver to make this an error instead.\n");
+            std::printf("--------------------------------------------------------------\n\n");
+            const std::string wav =
+                (opt.outWav == "smartmic-output.wav") ? std::string("smartmic-output.wav")
+                                                      : opt.outWav;
+            sink = std::make_shared<host::WavFileSink>("wav", wav);
+        }
     }
 #else
     registry.setDevices({
@@ -155,8 +240,8 @@ int main(int argc, char** argv) {
 #endif
     sink = std::make_shared<host::WavFileSink>("wav", opt.outWav);
 #endif
-    if (!sink->start()) {
-        std::fprintf(stderr, "failed to open the output\n");
+    if (!sinkStarted && !sink->start()) {
+        std::fprintf(stderr, "failed to open the output (%s)\n", sink->id().c_str());
         return 1;
     }
     if (!localAlreadyStarted && !local->start()) {
