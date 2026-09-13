@@ -32,4 +32,22 @@ jobs:
           name: SmartMic-Driver
           path: windows/driver/x64/Release/
 
+  build-service:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -A x64
+
+      - name: Build Windows Service
+        run: cmake --build build --config Release
+
+      - name: Upload compiled service artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartMic-Service
+          path: build/apps/Release/smartmic-service.exe
+
 
