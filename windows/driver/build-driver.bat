@@ -21,16 +21,20 @@ if not exist "%OUT%\smartmic.sys" (
 
 echo.
 echo === 2/4  Creating a test certificate ========================================
-REM  Development only. Production uses the EV certificate and Microsoft
-REM  attestation signing -- see docs/adr/ADR-010-driver-signing-and-release.md.
-powershell -Command "if (!(Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Subject -match 'SmartMicTestCert' })) { exit 1 } else { exit 0 }" >nul 2>&1
-if errorlevel 1 (
-    echo     generating new test certificate...
-    powershell -Command "$cert = New-SelfSignedCertificate -Subject 'CN=SmartMicTestCert' -CertStoreLocation 'Cert:\LocalMachine\My' -Type CodeSigningCert; Export-Certificate -Cert $cert -FilePath 'SmartMicTestCert.cer' -Force" >nul 2>&1
-    certutil -addstore Root SmartMicTestCert.cer >nul 2>&1
-    certutil -addstore TrustedPublisher SmartMicTestCert.cer >nul 2>&1
+if "%CI%"=="true" (
+    echo     Skipping test certificate creation in CI environment.
 ) else (
-    echo     certificate already present, reusing it
+    REM  Development only. Production uses the EV certificate and Microsoft
+    REM  attestation signing -- see docs/adr/ADR-010-driver-signing-and-release.md.
+    powershell -Command "if (!(Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Subject -match 'SmartMicTestCert' })) { exit 1 } else { exit 0 }" >nul 2>&1
+    if errorlevel 1 (
+        echo     generating new test certificate...
+        powershell -Command "$cert = New-SelfSignedCertificate -Subject 'CN=SmartMicTestCert' -CertStoreLocation 'Cert:\LocalMachine\My' -Type CodeSigningCert; Export-Certificate -Cert $cert -FilePath 'SmartMicTestCert.cer' -Force"
+        certutil -addstore Root SmartMicTestCert.cer >nul 2>&1
+        certutil -addstore TrustedPublisher SmartMicTestCert.cer >nul 2>&1
+    ) else (
+        echo     certificate already present, reusing it
+    )
 )
 
 echo.
@@ -54,10 +58,14 @@ if errorlevel 1 (popd & goto :failed)
 
 echo.
 echo === 4/4  Signing ============================================================
-%SIGNTOOL% sign /a /v /sm /s My /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.cat
-if errorlevel 1 (popd & goto :failed)
-%SIGNTOOL% sign /a /v /sm /s My /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.sys
-if errorlevel 1 (popd & goto :failed)
+if "%CI%"=="true" (
+    echo     Skipping driver signing in CI environment.
+) else (
+    %SIGNTOOL% sign /a /v /sm /s My /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.cat
+    if errorlevel 1 (popd & goto :failed)
+    %SIGNTOOL% sign /a /v /sm /s My /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.sys
+    if errorlevel 1 (popd & goto :failed)
+)
 popd
 
 echo.
