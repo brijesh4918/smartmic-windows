@@ -38,8 +38,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Dependencies (vcpkg)
+        run: vcpkg install pkgconf libsodium opus nlohmann-json --triplet x64-windows
+
       - name: Configure CMake
-        run: cmake -S . -B build -A x64
+        run: cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
 
       - name: Build Windows Service
         run: cmake --build build --config Release
