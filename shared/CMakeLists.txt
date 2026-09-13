@@ -28,6 +28,9 @@ add_library(smartmic_media
 target_include_directories(smartmic_media PUBLIC media/include)
 target_link_libraries(smartmic_media
     PUBLIC smartmic_core smartmic_protocol smartmic_security PkgConfig::OPUS PkgConfig::SODIUM)
+if(WIN32)
+    target_link_libraries(smartmic_media PUBLIC ws2_32)
+endif()
 
 # Session: datagram framing, pairing handshake, authenticated channel.
 add_library(smartmic_session session/src/peer_session.cpp)
