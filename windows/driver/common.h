@@ -12,14 +12,21 @@
 #include <ntddk.h>
 #include <wdm.h>
 #include <windef.h>
-#include <ks.h>
-#include <ksmedia.h>
-#include <stdunk.h>
+#include <mmreg.h>      /* WAVEFORMATEX -- must come before ksmedia.h/portcls.h */
+#include <ks.h>         /* KS types used by portcls.h */
+#include <ksmedia.h>    /* KSDATAFORMAT_WAVEFORMATEX, pin categories, jack types */
+#include <unknown.h>
 #include <portcls.h>
+#include <stdunk.h>
 #include <ksdebug.h>
 #include <ntstrsafe.h>
 
-/* PFNCREATEMINIPORT was removed from portcls.h in WDK 26100+. */
+/* --------------------------------------------------------------------------
+   Compatibility shims for WDK 26100+
+   -------------------------------------------------------------------------- */
+
+/* PFNCREATEMINIPORT was removed from portcls.h in newer WDK versions. */
+#ifndef PFNCREATEMINIPORT_DEFINED
 typedef NTSTATUS (*PFNCREATEMINIPORT)(
     _Out_ PUNKNOWN* Unknown,
     _In_ REFCLSID ClassId,
@@ -28,9 +35,23 @@ typedef NTSTATUS (*PFNCREATEMINIPORT)(
     _In_ PUNKNOWN UnknownAdapter,
     _In_opt_ PVOID DeviceContext
 );
+#define PFNCREATEMINIPORT_DEFINED
+#endif
 
-/* PADAPTERCOMMON is no longer defined in newer WDK headers. Use IUnknown*. */
+/* PADAPTERCOMMON is no longer defined in newer WDK headers. */
+#ifndef PADAPTERCOMMON
 typedef IUnknown* PADAPTERCOMMON;
+#endif
+
+/* KSAUDFNAME_MICROPHONE may be absent from the kernel-mode ksmedia.h. */
+#ifndef KSAUDFNAME_MICROPHONE
+#define STATIC_KSAUDFNAME_MICROPHONE \
+    0x2bc31d69, 0x96e3, 0x11d2, 0xac, 0x4c, 0x00, 0xc0, 0x4f, 0x8e, 0xfb, 0x68
+DEFINE_GUIDSTRUCT("2BC31D69-96E3-11D2-AC4C-00C04F8EFB68", KSAUDFNAME_MICROPHONE);
+#define KSAUDFNAME_MICROPHONE DEFINE_GUIDNAMED(KSAUDFNAME_MICROPHONE)
+#endif
+
+/* -------------------------------------------------------------------------- */
 
 #include "inc/smartmic_ring.h"
 
