@@ -53,11 +53,9 @@ if errorlevel 1 (popd & goto :failed)
 
 echo.
 echo === 4/4  Signing ============================================================
-%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 ^
-    /t http://timestamp.digicert.com smartmic.cat
+%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.cat
 if errorlevel 1 (popd & goto :failed)
-%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 ^
-    /t http://timestamp.digicert.com smartmic.sys
+%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 /t http://timestamp.digicert.com smartmic.sys
 if errorlevel 1 (popd & goto :failed)
 popd
 
