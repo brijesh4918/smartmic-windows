@@ -9,6 +9,7 @@
 #ifndef SMARTMIC_COMMON_H
 #define SMARTMIC_COMMON_H
 
+#include <initguid.h>   /* Must be FIRST: makes DEFINE_GUID instantiate, not just declare */
 #include <ntddk.h>
 #include <wdm.h>
 #include <windef.h>
