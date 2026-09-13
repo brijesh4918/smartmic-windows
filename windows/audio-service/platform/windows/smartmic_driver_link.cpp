@@ -17,8 +17,15 @@ namespace smartmic {
 namespace {
 constexpr char kComponent[] = "DriverLink";
 
-// Finds the SmartMic control interface exposed by the driver.
-std::wstring findDevicePath() {
+// Helper: narrow a wide string for logging.
+static std::string narrow(const std::wstring& ws) {
+    if (ws.empty()) return {};
+    std::string out(ws.begin(), ws.end()); // lossy but fine for ASCII device paths
+    return out;
+}
+
+// ---- Method 1: SetupDi with DIGCF_PRESENT (standard, requires enabled interface) ----
+std::wstring findViaSetupDi() {
     HDEVINFO set = SetupDiGetClassDevsW(&GUID_DEVINTERFACE_SMARTMIC, nullptr, nullptr,
                                         DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (set == INVALID_HANDLE_VALUE) return {};
@@ -44,6 +51,111 @@ std::wstring findDevicePath() {
     SetupDiDestroyDeviceInfoList(set);
     return result;
 }
+
+// ---- Method 2: CM_Get_Device_Interface_List (finds even disabled interfaces) ----
+std::wstring findViaCM() {
+    ULONG bufSize = 0;
+    CONFIGRET cr = CM_Get_Device_Interface_List_SizeW(
+        &bufSize, const_cast<LPGUID>(&GUID_DEVINTERFACE_SMARTMIC), nullptr,
+        CM_GET_DEVICE_INTERFACE_LIST_ALL_DEVICES);
+    if (cr != CR_SUCCESS || bufSize <= 1) return {};
+
+    std::vector<wchar_t> buf(bufSize);
+    cr = CM_Get_Device_Interface_ListW(
+        const_cast<LPGUID>(&GUID_DEVINTERFACE_SMARTMIC), nullptr,
+        buf.data(), bufSize, CM_GET_DEVICE_INTERFACE_LIST_ALL_DEVICES);
+    if (cr == CR_SUCCESS && buf[0] != L'\0') {
+        return std::wstring(buf.data());
+    }
+    return {};
+}
+
+// ---- Diagnostic: check if the device node exists and whether it is started ----
+void diagnoseDeviceNode() {
+    // Look for any device with enumerator "ROOT" and hardware ID containing "smartmic"
+    HDEVINFO devSet = SetupDiGetClassDevsW(nullptr, L"ROOT\\SMARTMIC", nullptr,
+                                           DIGCF_ALLCLASSES | DIGCF_PRESENT);
+    if (devSet == INVALID_HANDLE_VALUE) {
+        // Try without DIGCF_PRESENT to see if it exists but is not started
+        devSet = SetupDiGetClassDevsW(nullptr, L"ROOT\\SMARTMIC", nullptr, DIGCF_ALLCLASSES);
+    }
+    if (devSet == INVALID_HANDLE_VALUE) {
+        logError(kComponent, "DIAG: Cannot enumerate devices at all (SetupDi error).");
+        return;
+    }
+
+    SP_DEVINFO_DATA devInfo{};
+    devInfo.cbSize = sizeof(devInfo);
+    bool found = false;
+
+    for (DWORD i = 0; SetupDiEnumDeviceInfo(devSet, i, &devInfo); ++i) {
+        found = true;
+        logInfo(kComponent, "DIAG: SmartMic device node FOUND in Device Manager.");
+
+        ULONG status = 0, problem = 0;
+        CONFIGRET cr = CM_Get_DevNode_Status(&status, &problem, devInfo.DevInst, 0);
+        if (cr == CR_SUCCESS) {
+            if (status & DN_STARTED) {
+                logInfo(kComponent, "DIAG: Driver IS loaded and running (DN_STARTED).");
+                logError(kComponent, "DIAG: But the control interface GUID is not registered.");
+                logError(kComponent, "DIAG: The driver .sys may be an older version that does not");
+                logError(kComponent, "DIAG: call IoRegisterDeviceInterface. Reinstall the latest driver.");
+            } else if (status & DN_HAS_PROBLEM) {
+                logError(kComponent, "DIAG: Driver has a PROBLEM. Code = " + std::to_string(problem));
+                if (problem == 52) {
+                    logError(kComponent, "DIAG: Problem 52 = driver signature enforcement is blocking it.");
+                    logError(kComponent, "DIAG: FIX: Open an admin Command Prompt and run:");
+                    logError(kComponent, "DIAG:   bcdedit /set testsigning on");
+                    logError(kComponent, "DIAG: Then REBOOT. (Requires Secure Boot to be off in BIOS.)");
+                } else if (problem == 31) {
+                    logError(kComponent, "DIAG: Problem 31 = device not working properly.");
+                    logError(kComponent, "DIAG: Try uninstalling and reinstalling the driver.");
+                } else {
+                    logError(kComponent, "DIAG: Look up CM_PROB code " + std::to_string(problem) + " in Microsoft docs.");
+                }
+            } else {
+                logError(kComponent, "DIAG: Device exists but is NOT started. Status flags = 0x"
+                                     + std::to_string(status));
+            }
+        } else {
+            logError(kComponent, "DIAG: Could not query device status (CM error " + std::to_string(cr) + ").");
+        }
+    }
+
+    if (!found) {
+        logError(kComponent, "DIAG: SmartMic device node NOT FOUND in Device Manager.");
+        logError(kComponent, "DIAG: The driver is not installed. Install it via Device Manager:");
+        logError(kComponent, "DIAG:   Action > Add legacy hardware > Install from disk > smartmic.inf");
+    }
+
+    SetupDiDestroyDeviceInfoList(devSet);
+}
+
+// Main entry point: try every method, then diagnose.
+std::wstring findDevicePath() {
+    // Method 1: standard SetupDi (interface must be present and enabled)
+    {
+        std::wstring path = findViaSetupDi();
+        if (!path.empty()) {
+            logInfo(kComponent, "Found driver via SetupDi: " + narrow(path));
+            return path;
+        }
+    }
+
+    // Method 2: CM API (finds even disabled/not-yet-enabled interfaces)
+    {
+        std::wstring path = findViaCM();
+        if (!path.empty()) {
+            logInfo(kComponent, "Found driver via CM (possibly disabled interface): " + narrow(path));
+            return path;
+        }
+    }
+
+    // Neither method found anything. Run diagnostics to explain why.
+    logError(kComponent, "SmartMic driver interface not found. Running diagnostics...");
+    diagnoseDeviceNode();
+    return {};
+}
 }  // namespace
 
 SmartMicDriverLink::SmartMicDriverLink(std::string id) : id_(std::move(id)) {}
@@ -52,13 +164,14 @@ SmartMicDriverLink::~SmartMicDriverLink() { stop(); }
 bool SmartMicDriverLink::openDevice() {
     const std::wstring path = findDevicePath();
     if (path.empty()) {
-        logError(kComponent, "SmartMic driver interface not found -- is the driver installed?");
+        logError(kComponent, "Cannot proceed without the SmartMic driver.");
         return false;
     }
     device_ = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (device_ == INVALID_HANDLE_VALUE) {
-        logError(kComponent, "cannot open the SmartMic device");
+        logError(kComponent, "CreateFile failed on: " + narrow(path) +
+                             " (error " + std::to_string(GetLastError()) + ")");
         return false;
     }
     return true;
