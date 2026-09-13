@@ -15,6 +15,8 @@ struct DriverDiagnosis {
     bool packageInstalled = false;   // the smartmic service is registered
     bool driverLoaded = false;       // ...and the kernel service is running
     bool interfacePresent = false;   // ...and the control interface is enabled
+    bool audioEndpointPresent = false;  // ...and Windows publishes the microphone
+    std::string endpointName;        // what Sound settings calls it
     std::string summary;             // one line: what is wrong
     std::string advice;              // one line: what to do about it
 };

@@ -3,7 +3,12 @@
 #include <windows.h>
 
 #include <setupapi.h>
+#include <mmdeviceapi.h>
+#include <functiondiscoverykeys_devpkey.h>
+
 #include <vector>
+
+#include "wasapi_common.h"
 
 #include "../../../driver/inc/smartmic_ring.h"
 
@@ -52,16 +57,83 @@ bool queryInterfacePresent() {
     return found;
 }
 
+// The question a user actually cares about: does a microphone called "Smart
+// Microphone" show up for Teams and Zoom? The control interface being present
+// does not guarantee it -- the audio filters are a separate part of the driver.
+bool queryAudioEndpoint(std::string& nameOut) {
+    // The diagnose path may run before anything else has initialised COM.
+    const HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool weInitialised = SUCCEEDED(init);
+
+    bool found = false;
+    ComPtr<IMMDeviceEnumerator> enumerator;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                   __uuidof(IMMDeviceEnumerator), enumerator.putVoid()))) {
+        ComPtr<IMMDeviceCollection> collection;
+        // DEVICE_STATE_UNPLUGGED and _DISABLED are included deliberately: an
+        // endpoint that exists but is disabled is a completely different
+        // problem from one that was never created.
+        if (SUCCEEDED(enumerator->EnumAudioEndpoints(
+                eCapture,
+                DEVICE_STATE_ACTIVE | DEVICE_STATE_DISABLED | DEVICE_STATE_UNPLUGGED,
+                collection.put()))) {
+            UINT count = 0;
+            collection->GetCount(&count);
+            for (UINT i = 0; i < count && !found; ++i) {
+                ComPtr<IMMDevice> device;
+                if (FAILED(collection->Item(i, device.put()))) continue;
+
+                std::string id, name;
+                LPWSTR rawId = nullptr;
+                if (SUCCEEDED(device->GetId(&rawId))) {
+                    id = wideToUtf8(rawId);
+                    CoTaskMemFree(rawId);
+                }
+                ComPtr<IPropertyStore> props;
+                if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, props.put()))) {
+                    PROPVARIANT v;
+                    PropVariantInit(&v);
+                    if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &v)) &&
+                        v.vt == VT_LPWSTR) {
+                        name = wideToUtf8(v.pwszVal);
+                    }
+                    PropVariantClear(&v);
+                }
+                if (looksLikeSmartMicEndpoint(id, name)) {
+                    found = true;
+                    nameOut = name;
+                }
+            }
+        }
+    }
+
+    if (weInitialised) CoUninitialize();
+    return found;
+}
+
 }  // namespace
 
 DriverDiagnosis diagnoseDriver() {
     DriverDiagnosis d;
     queryService(d.packageInstalled, d.driverLoaded);
     d.interfacePresent = queryInterfacePresent();
+    d.audioEndpointPresent = queryAudioEndpoint(d.endpointName);
 
-    if (d.interfacePresent) {
+    if (d.interfacePresent && d.audioEndpointPresent) {
         d.summary = "the SmartMic driver is installed and running";
         d.advice = "";
+        return d;
+    }
+
+    if (d.interfacePresent && !d.audioEndpointPresent) {
+        // The control half works but the audio half did not materialise.
+        d.summary = "the driver is running, but Windows is not publishing a "
+                    "'Smart Microphone' capture device";
+        d.advice = "the audio filters did not register. Check Device Manager for "
+                   "a warning on 'SmartMic Virtual Audio Device', and check the "
+                   "device instance id -- it should be ROOT\\SMARTMIC\\0000; "
+                   "ROOT\\UNKNOWN\\0000 means the INF did not match and the device "
+                   "was created as an unknown device";
         return d;
     }
 
@@ -99,6 +171,14 @@ std::string formatDriverDiagnosis(const DriverDiagnosis& d) {
     out += d.driverLoaded ? "yes\n" : "NO\n";
     out += "  control interface present: ";
     out += d.interfacePresent ? "yes\n" : "NO\n";
+    out += "  'Smart Microphone' endpoint: ";
+    if (d.audioEndpointPresent) {
+        out += "yes";
+        if (!d.endpointName.empty()) { out += " ("; out += d.endpointName; out += ")"; }
+        out += "\n";
+    } else {
+        out += "NO\n";
+    }
     out += "\n  ";
     out += d.summary;
     out += "\n";

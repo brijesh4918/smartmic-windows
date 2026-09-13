@@ -72,6 +72,18 @@ typedef struct _SMARTMIC_RING_HEADER {
 
 /* --- control channel ------------------------------------------------------ */
 
+/*  The control channel is registered as a device interface WITH a reference
+    string, and the driver answers IRP_MJ_CREATE for exactly that name.
+
+    This is not decoration. PortCls owns IRP_MJ_CREATE for this device and
+    dispatches it by subdevice name ("Wave", "Topology"). Opening the bare
+    interface path carries no name at all, so PortCls finds no subdevice and
+    fails the open with STATUS_OBJECT_NAME_NOT_FOUND -- which surfaces in user
+    mode as CreateFile error 2, on a path that plainly exists. Naming the
+    reference gives the driver something unambiguous to recognise before
+    PortCls ever sees the IRP. */
+#define SMARTMIC_CONTROL_REFERENCE  L"SmartMicControl"
+
 /* {B0C2A1D4-7E31-4B8C-9A57-2E6F1D3C8A90} */
 DEFINE_GUID(GUID_DEVINTERFACE_SMARTMIC,
     0xb0c2a1d4, 0x7e31, 0x4b8c, 0x9a, 0x57, 0x2e, 0x6f, 0x1d, 0x3c, 0x8a, 0x90);

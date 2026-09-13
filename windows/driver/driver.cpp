@@ -15,6 +15,18 @@ PSMARTMIC_DEVICE_CONTEXT g_SmartMicContext = NULL;
 
 static PDRIVER_DISPATCH g_PcDeviceControl = NULL;
 static PDRIVER_DISPATCH g_PcClose = NULL;
+static PDRIVER_DISPATCH g_PcCreate = NULL;
+static PDRIVER_DISPATCH g_PcCleanup = NULL;
+
+/* Stamped on the file object of an open of our control interface, so close,
+   cleanup and device-control can tell our handles from PortCls's without
+   re-parsing names. */
+#define SMARTMIC_FILE_TAG ((PVOID)(ULONG_PTR)0x534D4331)   /* 'SMC1' */
+
+static BOOLEAN SmartMicIsOurFile(_In_ PIO_STACK_LOCATION Stack)
+{
+    return Stack->FileObject != NULL && Stack->FileObject->FsContext == SMARTMIC_FILE_TAG;
+}
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
 extern "C" DRIVER_ADD_DEVICE SmartMicAddDevice;
@@ -111,12 +123,64 @@ static NTSTATUS SmartMicHandlePrivateIoctl(_In_ PIRP Irp,
     }
 }
 
+/*++
+    PortCls dispatches IRP_MJ_CREATE by subdevice name and fails anything it
+    does not recognise. Our control channel is opened by its reference string,
+    so it is claimed here and never reaches PortCls.
+--*/
+static NTSTATUS SmartMicCreate(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
+{
+    PAGED_CODE();
+
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    PFILE_OBJECT file = stack->FileObject;
+
+    if (file != NULL && file->FileName.Buffer != NULL && file->FileName.Length > 0) {
+        /* The name arrives as "\SmartMicControl"; compare with and without the
+           leading separator rather than assuming which one we get. */
+        UNICODE_STRING withSlash, bare;
+        RtlInitUnicodeString(&withSlash, L"\\" SMARTMIC_CONTROL_REFERENCE);
+        RtlInitUnicodeString(&bare, SMARTMIC_CONTROL_REFERENCE);
+
+        if (RtlEqualUnicodeString(&file->FileName, &withSlash, TRUE) ||
+            RtlEqualUnicodeString(&file->FileName, &bare, TRUE)) {
+            file->FsContext = SMARTMIC_FILE_TAG;
+            SmTrace("control channel opened");
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+            Irp->IoStatus.Information = FILE_OPENED;
+            IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            return STATUS_SUCCESS;
+        }
+    }
+
+    return g_PcCreate(DeviceObject, Irp);
+}
+
+static NTSTATUS SmartMicCleanup(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
+{
+    PAGED_CODE();
+
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    if (SmartMicIsOurFile(stack)) {
+        Irp->IoStatus.Status = STATUS_SUCCESS;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_SUCCESS;
+    }
+    return g_PcCleanup != NULL ? g_PcCleanup(DeviceObject, Irp) : PcDispatchIrp(DeviceObject, Irp);
+}
+
 static NTSTATUS SmartMicDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
 {
     PAGED_CODE();
 
     PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
     BOOLEAN handled = FALSE;
+
+    /* Only handles opened through our control interface may drive the ring. */
+    if (!SmartMicIsOurFile(stack)) {
+        return g_PcDeviceControl(DeviceObject, Irp);
+    }
 
     const NTSTATUS status = SmartMicHandlePrivateIoctl(Irp, stack, &handled);
     if (!handled) {
@@ -133,10 +197,21 @@ static NTSTATUS SmartMicClose(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
 {
     PAGED_CODE();
 
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+
     /* A service that crashed without unmapping must not leave the ring claimed
        forever, or a restart could never take it back (risk R11). */
     if (g_SmartMicContext != NULL && g_SmartMicContext->ring != NULL) {
         g_SmartMicContext->ring->ReleaseClaimIfOwner(PsGetCurrentProcess());
+    }
+
+    if (SmartMicIsOurFile(stack)) {
+        /* PortCls never saw the create, so it must not see the close. */
+        stack->FileObject->FsContext = NULL;
+        Irp->IoStatus.Status = STATUS_SUCCESS;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_SUCCESS;
     }
     return g_PcClose(DeviceObject, Irp);
 }
@@ -228,9 +303,11 @@ extern "C" NTSTATUS SmartMicAddDevice(_In_ PDRIVER_OBJECT DriverObject,
         return status;
     }
 
+    UNICODE_STRING controlReference;
+    RtlInitUnicodeString(&controlReference, SMARTMIC_CONTROL_REFERENCE);
     status = IoRegisterDeviceInterface(PhysicalDeviceObject,
                                        &GUID_DEVINTERFACE_SMARTMIC,
-                                       NULL,
+                                       &controlReference,
                                        &ctx->interfaceName);
     if (NT_SUCCESS(status)) {
         ctx->interfaceRegistered = TRUE;
@@ -259,8 +336,12 @@ extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
     /* Chain, do not replace: PortCls must keep seeing everything it needs. */
     g_PcDeviceControl = DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL];
     g_PcClose         = DriverObject->MajorFunction[IRP_MJ_CLOSE];
+    g_PcCreate        = DriverObject->MajorFunction[IRP_MJ_CREATE];
+    g_PcCleanup       = DriverObject->MajorFunction[IRP_MJ_CLEANUP];
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = SmartMicDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_CLOSE]          = SmartMicClose;
+    DriverObject->MajorFunction[IRP_MJ_CREATE]         = SmartMicCreate;
+    DriverObject->MajorFunction[IRP_MJ_CLEANUP]        = SmartMicCleanup;
     DriverObject->MajorFunction[IRP_MJ_PNP]            = SmartMicPnpHandler;
 
     SmTrace("DriverEntry ok, version %08X", SMARTMIC_DRIVER_VERSION);

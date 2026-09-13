@@ -282,8 +282,9 @@ int main(int argc, char** argv) {
             std::printf("\n--------------------------------------------------------------\n");
             std::printf("%s", formatDriverDiagnosis(d).c_str());
             std::printf("\n  Falling back to recording into a file, so you can still pair\n"
-                        "  the phone and check the audio. Teams and Zoom will NOT see a\n"
-                        "  SmartMic microphone until the driver loads.\n");
+                        "  the phone and check the audio. Until the line above reads\n"
+                        "  'installed and running', Teams and Zoom will not receive\n"
+                        "  anything through Smart Microphone.\n");
             std::printf("  Run with --sink driver to make this an error instead.\n");
             std::printf("--------------------------------------------------------------\n\n");
             const std::string wav =
