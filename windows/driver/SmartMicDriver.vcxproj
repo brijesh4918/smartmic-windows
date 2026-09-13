@@ -63,13 +63,12 @@
     <Inf Include="smartmic.inf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <PropertyGroup>
-    <!-- Skip built-in verification/packaging since build-driver.bat does it -->
-    <RunInfVerif>false</RunInfVerif>
-    <InfVerif_Enable>false</InfVerif_Enable>
-    <RunInf2Cat>false</RunInf2Cat>
-    <Inf2Cat_Enable>false</Inf2Cat_Enable>
-  </PropertyGroup>
+  <Target Name="InfVerif" />
+  <Target Name="Inf2Cat" />
+  <!-- Overriding DriverPackageTarget disables MSBuild's built-in packaging,
+       but we make it depend on StampInf so the INF file still gets stamped
+       and copied to the output directory. -->
+  <Target Name="DriverPackageTarget" DependsOnTargets="StampInf" />
   <!-- Disable MSBuild's automatic test signing — build-driver.bat signs with /fd sha256 -->
   <PropertyGroup>
     <SignMode>Off</SignMode>

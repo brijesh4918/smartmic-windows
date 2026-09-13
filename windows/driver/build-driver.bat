@@ -9,7 +9,7 @@ setlocal
 
 echo.
 echo === 1/4  Building the driver =================================================
-msbuild SmartMicDriver.vcxproj /p:Configuration=Release /p:Platform=x64 /m /p:RunInfVerif=false /p:InfVerif_Enable=false /p:RunInf2Cat=false /p:Inf2Cat_Enable=false
+msbuild SmartMicDriver.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 if errorlevel 1 goto :failed
 
 set OUT=x64\Release\smartmic
