@@ -325,6 +325,10 @@ int main(int argc, char** argv) {
     // The driver path has to open the device to know whether it works, so it
     // may already be started by the time we reach the common start below.
     bool sinkStarted = false;
+    // What the banner should say the audio is going to. The banner used to
+    // print --out unconditionally, so a run that was correctly feeding the
+    // driver still claimed it was writing smartmic-output.wav.
+    std::string sinkLabel;
 
 #if defined(SMARTMIC_HAVE_WASAPI)
     WasapiDeviceEnumerator enumerator;
@@ -338,14 +342,19 @@ int main(int argc, char** argv) {
     // happens to still be the default -- that was impossible to reason about.
     if (opt.sink == SinkKind::Cable) {
         sink = std::make_shared<WasapiRenderSink>("cable", opt.outWav);
+        sinkLabel = "virtual cable " + opt.outWav;
     } else if (opt.sink == SinkKind::Wav) {
         sink = std::make_shared<host::WavFileSink>("wav", opt.outWav);
+        sinkLabel = opt.outWav + " (file -- Teams will not see this)";
     } else {
         auto link = std::make_shared<SmartMicDriverLink>("driver");
         if (link->start()) {
             sink = link;
             sinkStarted = true;
-            std::printf("  output     Smart Microphone (driver v%u)\n", link->driverVersion());
+            char label[96];
+            std::snprintf(label, sizeof(label), "Smart Microphone (driver v%u)",
+                          link->driverVersion());
+            sinkLabel = label;
         } else if (opt.sink == SinkKind::Driver) {
             // The user asked for the driver specifically, so do not silently
             // do something else -- explain and stop.
@@ -369,6 +378,7 @@ int main(int argc, char** argv) {
                 (opt.outWav == "smartmic-output.wav") ? std::string("smartmic-output.wav")
                                                       : opt.outWav;
             sink = std::make_shared<host::WavFileSink>("wav", wav);
+            sinkLabel = wav + " (file -- the driver was unavailable)";
         }
     }
 #else
@@ -498,7 +508,8 @@ int main(int argc, char** argv) {
     std::printf("  device     %s\n", identity.deviceId().c_str());
     std::printf("  fingerprint %s\n", identity.fingerprint().c_str());
     std::printf("  listening  udp/%u\n", transport->localPort());
-    std::printf("  output     %s\n", opt.outWav.c_str());
+    std::printf("  output     %s\n",
+                sinkLabel.empty() ? opt.outWav.c_str() : sinkLabel.c_str());
     std::printf("\n  pairing code  %s   (expires in 5 minutes)\n", offer.code.c_str());
     std::printf("  session       %s\n", offer.sessionId.c_str());
     std::printf("  qr            %s\n", offer.qrUri.c_str());
@@ -539,7 +550,43 @@ int main(int argc, char** argv) {
                               ? clock::now() + std::chrono::seconds(opt.durationSeconds)
                               : clock::time_point::max();
 
+    uint64_t lastStatusMs = protocol::nowUnixMs();
+
     while (!g_stop.load() && clock::now() < deadline) {
+        // While nothing is paired, say so out loud every few seconds. Silence
+        // here is indistinguishable from a hang, and the one fact that matters
+        // -- whether any datagram has arrived at all -- separates "the phone
+        // cannot reach this PC" from "the phone reached it and pairing failed".
+        if (peer.state() != session::SessionState::Authenticated) {
+            const uint64_t nowStatus = protocol::nowUnixMs();
+            if (nowStatus - lastStatusMs >= 8000) {
+                lastStatusMs = nowStatus;
+                const auto ts = transport->stats();
+                if (ts.packetsReceived == 0) {
+                    std::printf(
+                        "\n  waiting -- nothing has arrived on udp/%u yet.\n"
+                        "  The phone is not reaching this PC. Check, in order:\n"
+                        "    1. the phone is on the same network as %s\n"
+                        "       (if you pasted the Tailscale link, Tailscale must be\n"
+                        "        running and connected on the phone too)\n"
+                        "    2. the phone app has permission to use the local network\n"
+                        "    3. Windows Firewall is allowing smartmic-service.exe\n"
+                        "  To rule out the phone entirely, run this on THIS PC:\n"
+                        "    smartmic-phone.exe --host 127.0.0.1 --port %u --session %s --code %s\n",
+                        transport->localPort(), advertisedHost.c_str(),
+                        transport->localPort(), offer.sessionId.c_str(), offer.code.c_str());
+                } else {
+                    std::printf("\n  waiting -- %llu datagrams received, %llu rejected, session %s.\n"
+                                "  Packets ARE arriving, so this is pairing, not the network.\n"
+                                "  A wrong or expired code looks exactly like this.\n",
+                                (unsigned long long)ts.packetsReceived,
+                                (unsigned long long)peer.rejectedDatagrams(),
+                                std::string(session::toString(peer.state())).c_str());
+                }
+                std::fflush(stdout);
+            }
+        }
+
         // The service's PTT_READY is emitted only once the jitter buffer holds
         // real decodable audio -- never on the request alone (ADR-007).
         if (pttRequested.load() && !announcedReady.load() &&
