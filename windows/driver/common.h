@@ -32,8 +32,66 @@ typedef struct tWAVEFORMATEX {
 #define WAVE_FORMAT_PCM 1
 #endif
 
-#include <ks.h>         /* KS types used by portcls.h */
-#include <ksmedia.h>    /* KSDATAFORMAT_WAVEFORMATEX, pin categories, jack types */
+#include <ks.h>         /* KS types (KSDATAFORMAT, KSDATARANGE, etc.) */
+#include <ksmedia.h>    /* pin categories, jack types */
+
+/* --------------------------------------------------------------------------
+   WDK 26100 kernel-mode ksmedia.h does NOT define these audio structs.
+   portcls.h uses them at lines 3542+, so we must define them here.
+   -------------------------------------------------------------------------- */
+#ifndef _KSDATAFORMAT_WAVEFORMATEX_
+#define _KSDATAFORMAT_WAVEFORMATEX_
+typedef struct {
+    KSDATAFORMAT    DataFormat;
+    WAVEFORMATEX    WaveFormatEx;
+} KSDATAFORMAT_WAVEFORMATEX, *PKSDATAFORMAT_WAVEFORMATEX;
+#endif
+
+#ifndef _KSDATAFORMAT_WAVEFORMATEXTENSIBLE_
+#define _KSDATAFORMAT_WAVEFORMATEXTENSIBLE_
+/* WAVEFORMATEXTENSIBLE for kernel mode */
+#ifndef _WAVEFORMATEXTENSIBLE_
+#define _WAVEFORMATEXTENSIBLE_
+typedef struct {
+    WAVEFORMATEX    Format;
+    union {
+        WORD        wValidBitsPerSample;
+        WORD        wSamplesPerUnion;
+        WORD        wReserved;
+    } Samples;
+    DWORD           dwChannelMask;
+    GUID            SubFormat;
+} WAVEFORMATEXTENSIBLE, *PWAVEFORMATEXTENSIBLE;
+#endif
+typedef struct {
+    KSDATAFORMAT            DataFormat;
+    WAVEFORMATEXTENSIBLE    WaveFormatExt;
+} KSDATAFORMAT_WAVEFORMATEXTENSIBLE, *PKSDATAFORMAT_WAVEFORMATEXTENSIBLE;
+#endif
+
+#ifndef _KSDATARANGE_AUDIO_
+#define _KSDATARANGE_AUDIO_
+typedef struct {
+    KSDATARANGE     DataRange;
+    ULONG           MaximumChannels;
+    ULONG           MinimumBitsPerSample;
+    ULONG           MaximumBitsPerSample;
+    ULONG           MinimumSampleFrequency;
+    ULONG           MaximumSampleFrequency;
+} KSDATARANGE_AUDIO, *PKSDATARANGE_AUDIO;
+#endif
+
+/* KSDATAFORMAT_DSOUND is used by portcls.h internally */
+#ifndef _KSDATAFORMAT_DSOUND_
+#define _KSDATAFORMAT_DSOUND_
+typedef struct {
+    KSDATAFORMAT    DataFormat;
+    ULONG           BufferDesc_Flags;
+    ULONG           BufferDesc_Control;
+    WAVEFORMATEX    BufferDesc_WaveFormatEx;
+} KSDATAFORMAT_DSOUND, *PKSDATAFORMAT_DSOUND;
+#endif
+
 #include <unknown.h>
 #include <portcls.h>
 #include <stdunk.h>
