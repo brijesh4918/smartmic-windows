@@ -75,35 +75,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path staging | Out-Null
           Copy-Item build\apps\Release\* staging\ -Recurse -Force
-          # vcpkg puts the runtime DLLs next to the exe; make sure they travel.
+          Copy-Item docs\service-readme.txt staging\README.txt -Force
           Get-ChildItem staging | Select-Object Name, Length | Format-Table -AutoSize
-          @"
-SmartMic service
-================
-
-First run this, before anything else:
-
-    smartmic-service.exe --diagnose
-
-It reports whether the SmartMic driver is installed, whether Windows loaded
-it, and whether its control interface is available -- and tells you which of
-those is the problem.
-
-Normal use (needs the driver installed):
-
-    smartmic-service.exe --port 47820
-
-Test without the driver -- pairs a phone and records to a WAV file, so you can
-prove the phone half works before fighting the driver:
-
-    smartmic-service.exe --port 47820 --sink wav --out C:\Users\Public\test.wav
-
-Options:
-    --sink auto     driver if present, otherwise a WAV file  (default)
-    --sink driver   driver only; fail with a diagnosis if it is missing
-    --sink wav      always a WAV file
-    --sink cable    a third-party virtual cable, by device id in --out
-"@ | Set-Content -Encoding UTF8 staging\README.txt
 
       - name: Upload compiled service artifact
         uses: actions/upload-artifact@v4
