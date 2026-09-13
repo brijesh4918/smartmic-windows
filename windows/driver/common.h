@@ -12,7 +12,26 @@
 #include <ntddk.h>
 #include <wdm.h>
 #include <windef.h>
-#include <mmreg.h>      /* WAVEFORMATEX -- must come before ksmedia.h/portcls.h */
+/* WAVEFORMATEX is normally defined in mmreg.h, but the full mmreg.h pulls in
+   BITMAPINFOHEADER and other user-mode types that don't exist in kernel mode.
+   Define just the audio types we need instead. */
+#ifndef _WAVEFORMATEX_
+#define _WAVEFORMATEX_
+typedef struct tWAVEFORMATEX {
+    WORD    wFormatTag;
+    WORD    nChannels;
+    DWORD   nSamplesPerSec;
+    DWORD   nAvgBytesPerSec;
+    WORD    nBlockAlign;
+    WORD    wBitsPerSample;
+    WORD    cbSize;
+} WAVEFORMATEX, *PWAVEFORMATEX, NEAR *NPWAVEFORMATEX, FAR *LPWAVEFORMATEX;
+#endif /* _WAVEFORMATEX_ */
+
+#ifndef WAVE_FORMAT_PCM
+#define WAVE_FORMAT_PCM 1
+#endif
+
 #include <ks.h>         /* KS types used by portcls.h */
 #include <ksmedia.h>    /* KSDATAFORMAT_WAVEFORMATEX, pin categories, jack types */
 #include <unknown.h>
