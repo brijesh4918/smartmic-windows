@@ -22,9 +22,25 @@ jobs:
       - name: Install Windows Driver Kit (WDK)
         run: Start-Process -FilePath .\wdksetup.exe -ArgumentList "/q" -Wait -NoNewWindow
 
+      # Capture the whole build into a file as well as the step output. When
+      # this fails, the log is downloadable as an artifact, which is far
+      # quicker than reading it back out of the web UI.
       - name: Build Driver
         working-directory: windows/driver
-        run: .\build-driver.bat
+        shell: cmd
+        run: |
+          call build-driver.bat > build-log.txt 2>&1
+          set RC=%ERRORLEVEL%
+          type build-log.txt
+          exit /b %RC%
+
+      - name: Upload the driver build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartMic-Driver-BuildLog
+          path: windows/driver/build-log.txt
+          if-no-files-found: warn
 
       # An unsigned kernel driver installs happily and then never loads, which
       # is exactly the failure this repository already shipped once. Fail the

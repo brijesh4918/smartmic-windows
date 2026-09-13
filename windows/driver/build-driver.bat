@@ -56,11 +56,7 @@ echo.
 echo === 4/6  Test certificate ====================================================
 REM  Development only. Production uses the EV certificate and Microsoft
 REM  attestation signing -- see docs/adr/ADR-010-driver-signing-and-release.md.
-powershell -NoProfile -Command ^
-  "$existing = Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object { $_.Subject -eq 'CN=SmartMicTestCert' } | Select-Object -First 1;" ^
-  "if ($null -eq $existing) { $existing = New-SelfSignedCertificate -Subject 'CN=SmartMicTestCert' -CertStoreLocation 'Cert:\LocalMachine\My' -Type CodeSigningCert -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(5) };" ^
-  "Export-Certificate -Cert $existing -FilePath '%OUT%\SmartMicTestCert.cer' -Force | Out-Null;" ^
-  "Write-Host ('    thumbprint: ' + $existing.Thumbprint)"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make-test-cert.ps1" -OutDir "%OUT%"
 if errorlevel 1 goto :failed
 if not exist "%OUT%\SmartMicTestCert.cer" ( echo failed to export the test certificate & goto :failed )
 
