@@ -133,7 +133,7 @@ PCFILTER_DESCRIPTOR SmartMicTopoFilterDescriptor =
 {
     0,
     &SmartMicTopoFilterAutomation,
-    sizeof(PCPIN_DESCRIPTOR),
+    sizeof(SmartMicTopoPins[0]),
     SIZEOF_ARRAY(SmartMicTopoPins),
     SmartMicTopoPins,
     sizeof(PCNODE_DESCRIPTOR),

@@ -8,6 +8,9 @@
 #include "common.h"
 #include "ring.h"
 
+/* Placement new for kernel mode (standard <new> is unavailable). */
+inline void* __cdecl operator new(size_t, void* p) { return p; }
+
 PSMARTMIC_DEVICE_CONTEXT g_SmartMicContext = NULL;
 
 static PDRIVER_DISPATCH g_PcDeviceControl = NULL;
@@ -195,11 +198,12 @@ extern "C" NTSTATUS SmartMicAddDevice(_In_ PDRIVER_OBJECT DriverObject,
     }
     RtlZeroMemory(ctx, sizeof(*ctx));
 
-    ctx->ring = new (POOL_FLAG_NON_PAGED, SMARTMIC_POOLTAG) CSmartMicRing();
-    if (ctx->ring == NULL) {
+    void* ringMem = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(CSmartMicRing), SMARTMIC_POOLTAG);
+    if (ringMem == NULL) {
         ExFreePoolWithTag(ctx, SMARTMIC_POOLTAG);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+    ctx->ring = new (ringMem) CSmartMicRing();
 
     NTSTATUS status = ctx->ring->Initialize();
     if (!NT_SUCCESS(status)) {

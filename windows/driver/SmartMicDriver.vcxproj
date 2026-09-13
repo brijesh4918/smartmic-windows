@@ -25,6 +25,10 @@
     <SpectreMitigation>Spectre</SpectreMitigation>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <!-- InfVerif.dll is missing on CI runners; skip verification there. -->
+    <InfVerifEnabled>false</InfVerifEnabled>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
@@ -35,7 +39,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(DDK_LIB_PATH)\portcls.lib;$(DDK_LIB_PATH)\ksguid.lib;$(DDK_LIB_PATH)\stdunk.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DDK_LIB_PATH)\portcls.lib;$(DDK_LIB_PATH)\ks.lib;$(DDK_LIB_PATH)\ksguid.lib;$(DDK_LIB_PATH)\stdunk.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SubSystem>Native</SubSystem>
     </Link>
     <Inf>

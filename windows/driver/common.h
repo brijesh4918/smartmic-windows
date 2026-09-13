@@ -12,10 +12,25 @@
 #include <ntddk.h>
 #include <wdm.h>
 #include <windef.h>
+#include <ks.h>
+#include <ksmedia.h>
 #include <stdunk.h>
 #include <portcls.h>
 #include <ksdebug.h>
 #include <ntstrsafe.h>
+
+/* PFNCREATEMINIPORT was removed from portcls.h in WDK 26100+. */
+typedef NTSTATUS (*PFNCREATEMINIPORT)(
+    _Out_ PUNKNOWN* Unknown,
+    _In_ REFCLSID ClassId,
+    _In_opt_ PUNKNOWN UnknownOuter,
+    _In_ POOL_TYPE PoolType,
+    _In_ PUNKNOWN UnknownAdapter,
+    _In_opt_ PVOID DeviceContext
+);
+
+/* PADAPTERCOMMON is no longer defined in newer WDK headers. Use IUnknown*. */
+typedef IUnknown* PADAPTERCOMMON;
 
 #include "inc/smartmic_ring.h"
 
