@@ -51,6 +51,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SmartMic-Service
-          path: build/apps/Release/smartmic-service.exe
+          path: build/apps/Release/
 
 
