@@ -38,8 +38,8 @@ echo === 3/4  Building the catalog =============================================
 REM Find inf2cat and signtool since they are not in PATH on the CI runner
 set INF2CAT=inf2cat
 set SIGNTOOL=signtool
-for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\x86\inf2cat.exe" "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x86\inf2cat.exe" 2^>nul') do set INF2CAT="%%i"
-for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\x86\signtool.exe" "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x86\signtool.exe" 2^>nul') do set SIGNTOOL="%%i"
+for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\inf2cat.exe" 2^>nul') do set INF2CAT="%%i"
+for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\signtool.exe" 2^>nul') do set SIGNTOOL="%%i"
 
 pushd "%OUT%"
 %INF2CAT% /driver:. /os:10_X64 /verbose
