@@ -40,6 +40,12 @@ set INF2CAT=inf2cat
 set SIGNTOOL=signtool
 for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\inf2cat.exe" 2^>nul') do set INF2CAT="%%i"
 for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\signtool.exe" 2^>nul') do set SIGNTOOL="%%i"
+for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\stampinf.exe" 2^>nul') do set STAMPINF="%%i"
+
+echo.
+echo === 2.5/4 Stamping INF file =================================================
+copy /y smartmic.inf "%OUT%\smartmic.inf"
+%STAMPINF% -d "*" -a "amd64" -v "*" -k "1.15" -f "%OUT%\smartmic.inf"
 
 pushd "%OUT%"
 %INF2CAT% /driver:. /os:10_X64 /verbose
