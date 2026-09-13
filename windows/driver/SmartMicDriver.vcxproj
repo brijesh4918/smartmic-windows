@@ -65,4 +65,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <!-- Disable InfVerif — InfVerif.dll is missing on CI runners -->
   <Target Name="InfVerif" />
+  <!-- Disable MSBuild's automatic test signing — build-driver.bat signs with /fd sha256 -->
+  <PropertyGroup>
+    <SignMode>Off</SignMode>
+  </PropertyGroup>
 </Project>
