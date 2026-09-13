@@ -13,6 +13,8 @@ project in Xcode and pressing Run needs no extra tooling.
   s.author           = { 'SmartMic' => 'dev@smartmic.invalid' }
   s.source           = { :path => '.' }
   s.platform         = :ios, '13.0'
+  # The pod vendors prebuilt .a files, so it can never be a dynamic framework.
+  s.static_framework = true
 
   s.vendored_libraries = 'lib/libsmartmic_phone.a', 'lib/libsodium.a', 'lib/libopus.a'
   s.source_files       = 'include/**/*.h'
