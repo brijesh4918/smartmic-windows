@@ -34,16 +34,23 @@ if errorlevel 1 (
 
 echo.
 echo === 3/4  Building the catalog ===============================================
+
+REM Find inf2cat and signtool since they are not in PATH on the CI runner
+set INF2CAT=inf2cat
+set SIGNTOOL=signtool
+for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\x86\inf2cat.exe" "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x86\inf2cat.exe" 2^>nul') do set INF2CAT="%%i"
+for /f "delims=" %%i in ('dir /s /b "C:\Program Files (x86)\Windows Kits\10\bin\x86\signtool.exe" "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x86\signtool.exe" 2^>nul') do set SIGNTOOL="%%i"
+
 pushd "%OUT%"
-inf2cat /driver:. /os:10_X64 /verbose
+%INF2CAT% /driver:. /os:10_X64 /verbose
 if errorlevel 1 (popd & goto :failed)
 
 echo.
 echo === 4/4  Signing ============================================================
-signtool sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 ^
+%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 ^
     /t http://timestamp.digicert.com smartmic.cat
 if errorlevel 1 (popd & goto :failed)
-signtool sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 ^
+%SIGNTOOL% sign /a /v /s PrivateCertStore /n SmartMicTestCert /fd sha256 ^
     /t http://timestamp.digicert.com smartmic.sys
 if errorlevel 1 (popd & goto :failed)
 popd
