@@ -1,3 +1,4 @@
+#include <initguid.h>
 #include "smartmic_driver_link.h"
 
 #include <setupapi.h>
@@ -10,6 +11,7 @@
 #include "smartmic/logging.h"
 
 #pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "mincore.lib")
 
 namespace smartmic {
 namespace {
