@@ -2,7 +2,7 @@ add_executable(smartmic-service service/main.cpp)
 target_link_libraries(smartmic-service PRIVATE smartmic_core smartmic_platform_host
                                                smartmic_session smartmic_media)
 if(WIN32)
-    target_link_libraries(smartmic-service PRIVATE smartmic_platform_windows ws2_32)
+    target_link_libraries(smartmic-service PRIVATE smartmic_platform_windows ws2_32 iphlpapi)
 endif()
 if(APPLE)
     target_link_libraries(smartmic-service PRIVATE smartmic_platform_mac)

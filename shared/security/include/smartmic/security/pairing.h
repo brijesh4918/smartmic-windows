@@ -145,6 +145,12 @@ private:
     uint32_t attempts_ = 0;
 };
 
+// Builds the pairing link for a given address. Exposed separately from issue()
+// because one offer can be reachable at several addresses -- a LAN address and
+// a Tailscale address, say -- and the phone needs whichever one applies to it.
+std::string buildPairingUri(const DeviceIdentity& self, const PairingOffer& offer,
+                            const std::string& host, uint16_t port);
+
 // Parses smartmic://pair?... from a scanned QR code.
 struct PairingUri {
     uint32_t version = 0;

@@ -188,19 +188,24 @@ PairingOffer PairingOfferBook::issue(const DeviceIdentity& self, const std::stri
 
     o.expiresAtMs = nowMs + static_cast<uint64_t>(policy_.ttlSeconds) * 1000ull;
 
-    char uri[512];
-    std::snprintf(uri, sizeof(uri),
-                  "smartmic://pair?v=1&host=%s&port=%u&pcid=%s&fp=%s&sid=%s&code=%s&exp=%llu",
-                  host.c_str(), static_cast<unsigned>(port), self.deviceId().c_str(),
-                  self.fingerprint().c_str(), o.sessionId.c_str(), o.code.c_str(),
-                  static_cast<unsigned long long>(o.expiresAtMs));
-    o.qrUri = uri;
+    o.qrUri = buildPairingUri(self, o, host, port);
 
     offer_ = o;
     has_ = true;
     consumed_ = false;
     attempts_ = 0;
     return o;
+}
+
+std::string buildPairingUri(const DeviceIdentity& self, const PairingOffer& offer,
+                            const std::string& host, uint16_t port) {
+    char uri[512];
+    std::snprintf(uri, sizeof(uri),
+                  "smartmic://pair?v=1&host=%s&port=%u&pcid=%s&fp=%s&sid=%s&code=%s&exp=%llu",
+                  host.c_str(), static_cast<unsigned>(port), self.deviceId().c_str(),
+                  self.fingerprint().c_str(), offer.sessionId.c_str(), offer.code.c_str(),
+                  static_cast<unsigned long long>(offer.expiresAtMs));
+    return uri;
 }
 
 bool PairingOfferBook::hasOutstanding(uint64_t nowMs) const {

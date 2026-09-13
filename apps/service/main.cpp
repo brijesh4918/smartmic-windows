@@ -19,7 +19,10 @@
 #if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 #else
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -123,29 +126,99 @@ std::string primaryLanAddress() {
     return result;
 }
 
-// Everything else this machine is reachable by, so the user has something to
-// try when the primary guess is the wrong network (VPNs and Hyper-V switches
-// both love to win the routing table).
-std::vector<std::string> otherLocalAddresses(const std::string& primary) {
-    std::vector<std::string> out;
-    char host[256] = {0};
-    if (::gethostname(host, sizeof(host) - 1) != 0) return out;
+#if defined(_WIN32)
+std::string wideToUtf8Simple(const wchar_t* w) {
+    if (w == nullptr) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return {};
+    std::string out(static_cast<size_t>(n - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), n, nullptr, nullptr);
+    return out;
+}
+#endif
 
-    addrinfo hints{};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
-    addrinfo* res = nullptr;
-    if (::getaddrinfo(host, nullptr, &hints, &res) != 0 || res == nullptr) return out;
+struct LocalAddress {
+    std::string ip;
+    std::string adapter;
+    bool tailscale = false;
+};
 
-    for (addrinfo* p = res; p != nullptr; p = p->ai_next) {
-        char text[INET_ADDRSTRLEN] = {0};
-        auto* v4 = reinterpret_cast<sockaddr_in*>(p->ai_addr);
-        if (::inet_ntop(AF_INET, &v4->sin_addr, text, sizeof(text)) == nullptr) continue;
-        const std::string addr = text;
-        if (addr == primary || addr.rfind("127.", 0) == 0) continue;
-        if (std::find(out.begin(), out.end(), addr) == out.end()) out.push_back(addr);
+// Tailscale hands out addresses from the carrier-grade NAT range. Recognising
+// it by range rather than by adapter name works the same on every platform and
+// does not break when the adapter gets renamed.
+bool isTailscaleRange(const std::string& ip) {
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (std::sscanf(ip.c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) != 4) return false;
+    return a == 100 && b >= 64 && b <= 127;          // 100.64.0.0/10
+}
+
+bool isUsableAddress(const std::string& ip) {
+    return !ip.empty() && ip.rfind("127.", 0) != 0 && ip != "0.0.0.0" &&
+           ip.rfind("169.254.", 0) != 0;             // link-local: never routable
+}
+
+// Every IPv4 address this machine actually holds.
+//
+// getaddrinfo(hostname) misses addresses on interfaces the resolver does not
+// consider "the" host address -- which is precisely the case for a Tailscale
+// adapter -- so the interfaces are enumerated directly.
+std::vector<LocalAddress> enumerateLocalAddresses() {
+    std::vector<LocalAddress> out;
+
+#if defined(_WIN32)
+    ULONG size = 16 * 1024;
+    std::vector<uint8_t> buffer(size);
+    ULONG rc = GetAdaptersAddresses(AF_INET,
+                                    GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                        GAA_FLAG_SKIP_DNS_SERVER,
+                                    nullptr,
+                                    reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &size);
+    if (rc == ERROR_BUFFER_OVERFLOW) {
+        buffer.resize(size);
+        rc = GetAdaptersAddresses(AF_INET,
+                                  GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                      GAA_FLAG_SKIP_DNS_SERVER,
+                                  nullptr,
+                                  reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &size);
     }
-    ::freeaddrinfo(res);
+    if (rc != NO_ERROR) return out;
+
+    for (auto* a = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); a != nullptr;
+         a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        for (auto* u = a->FirstUnicastAddress; u != nullptr; u = u->Next) {
+            if (u->Address.lpSockaddr->sa_family != AF_INET) continue;
+            auto* v4 = reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr);
+            char text[INET_ADDRSTRLEN] = {0};
+            if (::inet_ntop(AF_INET, &v4->sin_addr, text, sizeof(text)) == nullptr) continue;
+            if (!isUsableAddress(text)) continue;
+
+            LocalAddress la;
+            la.ip = text;
+            la.adapter = a->FriendlyName ? wideToUtf8Simple(a->FriendlyName) : std::string();
+            la.tailscale = isTailscaleRange(la.ip);
+            out.push_back(std::move(la));
+        }
+    }
+#else
+    ifaddrs* list = nullptr;
+    if (::getifaddrs(&list) != 0 || list == nullptr) return out;
+    for (ifaddrs* p = list; p != nullptr; p = p->ifa_next) {
+        if (p->ifa_addr == nullptr || p->ifa_addr->sa_family != AF_INET) continue;
+        if ((p->ifa_flags & IFF_UP) == 0) continue;
+        auto* v4 = reinterpret_cast<sockaddr_in*>(p->ifa_addr);
+        char text[INET_ADDRSTRLEN] = {0};
+        if (::inet_ntop(AF_INET, &v4->sin_addr, text, sizeof(text)) == nullptr) continue;
+        if (!isUsableAddress(text)) continue;
+
+        LocalAddress la;
+        la.ip = text;
+        la.adapter = p->ifa_name ? p->ifa_name : "";
+        la.tailscale = isTailscaleRange(la.ip);
+        out.push_back(std::move(la));
+    }
+    ::freeifaddrs(list);
+#endif
     return out;
 }
 
@@ -174,6 +247,7 @@ struct Options {
     int durationSeconds = 0;      // 0 = until interrupted
     std::string forcedCode;       // test hook only
     std::string forcedSession;
+    std::string advertiseHost;    // what goes in the pairing link
     bool diagnoseOnly = false;
 };
 
@@ -185,6 +259,9 @@ void printUsage() {
         "  --out <path|id>     WAV path for --sink wav, device id for --sink cable\n"
         "  --duration <secs>   stop after this long (default: run until Ctrl+C)\n"
         "  --state <dir>       where to keep this PC's identity key\n"
+        "  --host <addr>       address to put in the pairing link (default: this\n"
+        "                      PC's LAN address; use a 100.x Tailscale address to\n"
+        "                      pair from outside the network)\n"
         "  --diagnose          report the driver's state and exit\n"
         "  --help\n");
 }
@@ -207,6 +284,7 @@ int main(int argc, char** argv) {
         else if (k == "--duration") opt.durationSeconds = std::stoi(value());
         else if (k == "--code") opt.forcedCode = value();
         else if (k == "--session") opt.forcedSession = value();
+        else if (k == "--host") opt.advertiseHost = value();
         else if (k == "--sink") {
             const std::string v = value();
             if (v == "auto") opt.sink = SinkKind::Auto;
@@ -343,8 +421,10 @@ int main(int argc, char** argv) {
     security::PairingOfferBook offers;
     // --code / --session make the demo reproducible without a human reading a
     // screen. Omitted, a fresh random code and session are generated.
+    const std::string advertisedHost =
+        opt.advertiseHost.empty() ? localAddressHint() : opt.advertiseHost;
     const auto offer = offers.issue(
-        identity, localAddressHint(), transport->localPort(), protocol::nowUnixMs(),
+        identity, advertisedHost, transport->localPort(), protocol::nowUnixMs(),
         opt.forcedCode.empty() ? std::nullopt : std::optional<std::string>(opt.forcedCode),
         opt.forcedSession.empty() ? std::nullopt : std::optional<std::string>(opt.forcedSession));
 
@@ -423,12 +503,29 @@ int main(int argc, char** argv) {
     std::printf("  session       %s\n", offer.sessionId.c_str());
     std::printf("  qr            %s\n", offer.qrUri.c_str());
     {
-        const auto others = otherLocalAddresses(localAddressHint());
-        if (!others.empty()) {
-            std::printf("\n  If the phone cannot reach %s, this PC is also at:",
-                        localAddressHint().c_str());
-            for (const auto& a : others) std::printf(" %s", a.c_str());
-            std::printf("\n");
+        const auto addrs = enumerateLocalAddresses();
+
+        // A Tailscale address means this PC is reachable from outside the
+        // house. Print a complete second link for it rather than leaving the
+        // user to hand-edit the host, which is exactly where that goes wrong.
+        for (const auto& a : addrs) {
+            if (!a.tailscale || a.ip == advertisedHost) continue;
+            std::printf("\n  Reachable from anywhere via %s%s%s:\n    %s\n",
+                        a.ip.c_str(),
+                        a.adapter.empty() ? "" : " on ",
+                        a.adapter.c_str(),
+                        security::buildPairingUri(identity, offer, a.ip,
+                                                  transport->localPort()).c_str());
+        }
+
+        std::string alternatives;
+        for (const auto& a : addrs) {
+            if (a.tailscale || a.ip == advertisedHost) continue;
+            alternatives += " " + a.ip;
+        }
+        if (!alternatives.empty()) {
+            std::printf("\n  If the phone cannot reach %s, this PC is also at:%s\n",
+                        advertisedHost.c_str(), alternatives.c_str());
         }
     }
     std::printf("\n");
