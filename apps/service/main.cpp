@@ -33,6 +33,7 @@
 #include "wasapi_capture_source.h"
 #include "wasapi_device_enumerator.h"
 #include "wasapi_render_sink.h"
+#include "smartmic_driver_link.h"
 #endif
 
 using namespace smartmic;
@@ -123,21 +124,11 @@ int main(int argc, char** argv) {
     if (!chosen) { std::fprintf(stderr, "no usable capture device\n"); return 1; }
     local = std::make_shared<WasapiCaptureSource>("local", chosen->id);
     
-    std::string outDeviceId = opt.outWav;
-    if (outDeviceId == "smartmic-output.wav") {
-        outDeviceId = "";
-        for (const auto& dev : enumerator.enumerateRender()) {
-            if (dev.isSmartMicEndpoint) {
-                outDeviceId = dev.id;
-                break;
-            }
-        }
-        if (outDeviceId.empty()) {
-            std::fprintf(stderr, "Smart Microphone driver not found! Ensure the driver is installed.\n");
-            return 1;
-        }
+    if (opt.outWav == "smartmic-output.wav") {
+        sink = std::make_shared<SmartMicDriverLink>("driver");
+    } else {
+        sink = std::make_shared<WasapiRenderSink>("cable", opt.outWav);
     }
-    sink = std::make_shared<WasapiRenderSink>("cable", outDeviceId);
 #else
     registry.setDevices({
         DeviceInfo{"{local}", "Simulated local microphone (317 Hz)", true, false, 48000, 1},
