@@ -56,7 +56,7 @@ AddInterface = %KSCATEGORY_CAPTURE%, %KSNAME_Wave%,     SmartMic_Wave_Interface
 AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Wave%,     SmartMic_Wave_Interface
 AddInterface = %KSCATEGORY_AUDIO%,   %KSNAME_Topology%, SmartMic_Topo_Interface
 AddInterface = %KSCATEGORY_TOPOLOGY%,%KSNAME_Topology%, SmartMic_Topo_Interface
-AddInterface = "{B0C2A1D4-7E31-4B8C-9A57-2E6F1D3C8A90}",, SmartMic_Control_Interface
+AddInterface = %GUID_DEVINTERFACE_SMARTMIC%,, SmartMic_Control_Interface
 
 [SmartMic_Control_Interface]
 AddReg = SmartMic_Control_Interface.AddReg
@@ -97,3 +97,4 @@ KSCATEGORY_REALTIME  = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
 KSCATEGORY_TOPOLOGY  = "{DDA54A40-1E4C-11D1-A050-405705C10000}"
 KSNAME_Wave          = "Wave"
 KSNAME_Topology      = "Topology"
+GUID_DEVINTERFACE_SMARTMIC = "{B0C2A1D4-7E31-4B8C-9A57-2E6F1D3C8A90}"
