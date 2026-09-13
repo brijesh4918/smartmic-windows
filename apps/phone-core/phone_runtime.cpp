@@ -333,6 +333,20 @@ SM_API void sm_phone_set_mode(sm_phone* p, int mode) {
                                                  {{"mode", name}}));
 }
 
+SM_API void sm_phone_net_stats(sm_phone* p, uint64_t* out_sent,
+                               uint64_t* out_send_failures, uint64_t* out_received) {
+    uint64_t sent = 0, failures = 0, received = 0;
+    if (p != nullptr && p->transport != nullptr) {
+        const auto s = p->transport->stats();
+        sent = s.packetsSent;
+        failures = s.sendFailures;
+        received = s.packetsReceived;
+    }
+    if (out_sent) *out_sent = sent;
+    if (out_send_failures) *out_send_failures = failures;
+    if (out_received) *out_received = received;
+}
+
 SM_API const char* sm_phone_peer_fingerprint(sm_phone* p) {
     if (p == nullptr) return "";
     std::lock_guard<std::mutex> lk(p->textMu);

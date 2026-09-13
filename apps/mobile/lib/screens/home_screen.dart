@@ -127,6 +127,22 @@ class _PcCard extends StatelessWidget {
               ],
             ),
           ],
+          // While pairing has not completed, show whether this phone is even
+          // managing to transmit. Without it, "Pairing..." forever is
+          // indistinguishable from a dead network.
+          if (!connected) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.swap_vert_rounded, size: 15, color: SmartMicTheme.textDim),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(engine.net.diagnosis,
+                      style: const TextStyle(color: SmartMicTheme.textDim, fontSize: 12)),
+                ),
+              ],
+            ),
+          ],
           if (engine.error.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(engine.error,

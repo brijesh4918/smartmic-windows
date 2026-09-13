@@ -34,10 +34,32 @@ typedef _StrPtrDart = Pointer<Utf8> Function(Pointer<Void>);
 typedef _SetModeNative = Void Function(Pointer<Void>, Int32);
 typedef _SetModeDart = void Function(Pointer<Void>, int);
 
+typedef _NetStatsNative = Void Function(
+    Pointer<Void>, Pointer<Uint64>, Pointer<Uint64>, Pointer<Uint64>);
+typedef _NetStatsDart = void Function(
+    Pointer<Void>, Pointer<Uint64>, Pointer<Uint64>, Pointer<Uint64>);
+
 typedef _ParseUriNative = Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Int32, Pointer<Uint16>,
     Pointer<Utf8>, Int32, Pointer<Utf8>, Int32, Pointer<Utf8>, Int32);
 typedef _ParseUriDart = int Function(Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Uint16>,
     Pointer<Utf8>, int, Pointer<Utf8>, int, Pointer<Utf8>, int);
+
+class NetStats {
+  const NetStats(this.sent, this.sendFailures, this.received);
+  final int sent;
+  final int sendFailures;
+  final int received;
+
+  /// What to tell the user, in one line, when pairing is not completing.
+  String get diagnosis {
+    if (sent == 0) return 'not sending yet';
+    if (sendFailures > 0) {
+      return '$sendFailures sends refused by the phone - check VPN / local network permission';
+    }
+    if (received == 0) return 'sent $sent, nothing back - the PC is not receiving';
+    return 'sent $sent, received $received';
+  }
+}
 
 class PairingUri {
   PairingUri(this.host, this.port, this.sessionId, this.code, this.fingerprint);
@@ -66,6 +88,7 @@ class SmartMicNative {
     _lastError = _lib.lookupFunction<_StrPtrNative, _StrPtrDart>('sm_phone_last_error');
     _pcStatus = _lib.lookupFunction<_StrPtrNative, _StrPtrDart>('sm_phone_pc_status');
     _parseUri = _lib.lookupFunction<_ParseUriNative, _ParseUriDart>('sm_phone_parse_uri');
+    _netStats = _lib.lookupFunction<_NetStatsNative, _NetStatsDart>('sm_phone_net_stats');
   }
 
   static SmartMicNative? _instance;
@@ -98,6 +121,7 @@ class SmartMicNative {
   late final _StrPtrDart _lastError;
   late final _StrPtrDart _pcStatus;
   late final _ParseUriDart _parseUri;
+  late final _NetStatsDart _netStats;
 
   Pointer<Void> create({
     required String host,
@@ -133,6 +157,23 @@ class SmartMicNative {
   String deviceId(Pointer<Void> p) => _deviceId(p).toDartString();
   String lastError(Pointer<Void> p) => _lastError(p).toDartString();
   String pcStatus(Pointer<Void> p) => _pcStatus(p).toDartString();
+
+  /// Packets out, refused sends, packets in. The only numbers that separate
+  /// "this phone is not transmitting" from "the packets are being dropped
+  /// somewhere between here and the PC".
+  NetStats netStats(Pointer<Void> p) {
+    final sent = calloc<Uint64>();
+    final failed = calloc<Uint64>();
+    final received = calloc<Uint64>();
+    try {
+      _netStats(p, sent, failed, received);
+      return NetStats(sent.value, failed.value, received.value);
+    } finally {
+      calloc.free(sent);
+      calloc.free(failed);
+      calloc.free(received);
+    }
+  }
 
   /// Parses a scanned or pasted `smartmic://pair?...` link.
   PairingUri? parseUri(String uri) {

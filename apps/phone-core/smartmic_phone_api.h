@@ -79,6 +79,22 @@ SM_API void sm_phone_set_mode(sm_phone* p, int mode);
 
 /* Buffers are owned by the engine and valid until the next call on the same
  * handle; Dart copies them immediately. */
+/*  Transport counters, which answer the only question that matters when
+ *  pairing hangs: is this phone actually putting packets on the wire?
+ *
+ *    sent > 0, failures == 0, received == 0  -> the phone is transmitting and
+ *                                               the packets die en route
+ *    failures > 0                            -> the OS is refusing the send:
+ *                                               routing, VPN or permission
+ *    sent == 0                               -> the app never got as far as
+ *                                               transmitting
+ *
+ *  Any argument may be NULL. */
+SM_API void sm_phone_net_stats(sm_phone* p,
+                               uint64_t* out_sent,
+                               uint64_t* out_send_failures,
+                               uint64_t* out_received);
+
 SM_API const char* sm_phone_peer_fingerprint(sm_phone* p);
 SM_API const char* sm_phone_device_id(sm_phone* p);
 SM_API const char* sm_phone_last_error(sm_phone* p);

@@ -26,6 +26,7 @@ class SmartMicEngine extends ChangeNotifier with WidgetsBindingObserver {
   String error = '';
   String pcName = '';
   int mode = 0;
+  NetStats net = const NetStats(0, 0, 0);
 
   bool get connected => conn == ConnState.authenticated;
   bool get isLive => ptt == PttState.live;
@@ -88,6 +89,7 @@ class SmartMicEngine extends ChangeNotifier with WidgetsBindingObserver {
     if (h == null || h == nullptr) return;
     final n = SmartMicNative.instance;
 
+    net = n.netStats(h);
     final newConn = n.connState(h);
     final newPtt = n.pttState(h);
     final newLevel = n.micLevel(h);
@@ -113,6 +115,7 @@ class SmartMicEngine extends ChangeNotifier with WidgetsBindingObserver {
     final changed = newConn != conn ||
         newPtt != ptt ||
         newRtt != rttMs ||
+        conn != ConnState.authenticated ||
         (newLevel - micLevel).abs() > 0.01;
 
     conn = newConn;
