@@ -69,14 +69,18 @@ if errorlevel 1 goto :failed
 
 echo.
 echo === 4/4  Creating the device ================================================
-if exist devcon.exe (
-    devcon.exe install smartmic.inf root\smartmic
-    if errorlevel 1 goto :failed
-) else (
-    echo     devcon.exe is not in this folder. Add the device by hand:
-    echo       Device Manager -^> Action -^> Add legacy hardware -^> Next
-    echo       -^> Install the hardware that I manually select
-    echo       -^> Show All Devices -^> Have Disk -^> point at smartmic.inf
+REM  devcon is a WDK tool that is often simply absent, and when it is absent
+REM  the old version of this script reported success having created nothing.
+REM  The PowerShell helper makes the same SetupAPI calls devcon does, so there
+REM  is nothing to be missing.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-device.ps1" -InfPath "%~dp0smartmic.inf"
+if errorlevel 1 (
+    echo.
+    echo     Creating the device node failed. As a last resort you can do it by
+    echo     hand: Device Manager -^> Action -^> Add legacy hardware -^> Next
+    echo     -^> "Install the hardware that I manually select" -^> Show All Devices
+    echo     -^> Have Disk -^> point it at smartmic.inf
+    goto :failed
 )
 
 echo.

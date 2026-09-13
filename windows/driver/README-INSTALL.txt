@@ -21,7 +21,9 @@ It does the four things that have to happen, in the order they have to happen:
      this step Windows rejects the signature and the driver never loads)
   2. turns on test signing if it is off
   3. stages the package with pnputil
-  4. creates the device node with devcon
+  4. creates the device node (install-device.ps1, which makes the same
+     SetupAPI calls devcon does -- devcon itself ships with the WDK and is
+     frequently missing, and its absence used to fail silently)
 
 If it turns test signing on, REBOOT, then run install-driver.bat again.
 
@@ -66,7 +68,7 @@ If you would rather not run the script:
     bcdedit /set testsigning on
     (reboot)
     pnputil /add-driver smartmic.inf /install
-    devcon install smartmic.inf root\smartmic
+    powershell -ExecutionPolicy Bypass -File install-device.ps1 -InfPath smartmic.inf
 
 all from an Administrator command prompt, in this folder.
 
