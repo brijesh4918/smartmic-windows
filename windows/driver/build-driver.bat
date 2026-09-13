@@ -89,6 +89,7 @@ if errorlevel 1 echo           SmartMicTestCert.cer that is expected.
 popd
 
 copy /y install-driver.bat "%OUT%\" >nul 2>&1
+copy /y README-INSTALL.txt "%OUT%\" >nul 2>&1
 copy /y uninstall-driver.bat "%OUT%\" >nul 2>&1
 
 REM  devcon creates the root-enumerated device node. It ships with the WDK and

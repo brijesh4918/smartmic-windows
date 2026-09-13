@@ -11,12 +11,19 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <algorithm>
 #include <string>
 #include <thread>
+#include <vector>
 
 #if defined(_WIN32)
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
 
@@ -73,8 +80,79 @@ security::DeviceIdentity loadOrCreateIdentity(const fs::path& stateDir) {
     return id;
 }
 
+#if defined(_WIN32)
+using sm_socklen_t = int;
+#define SM_CLOSE_SOCK closesocket
+#else
+using sm_socklen_t = socklen_t;
+#define SM_CLOSE_SOCK ::close
+#endif
+
+// The address a phone on the same Wi-Fi must actually dial.
+//
+// This used to return the hostname. On a Mac that looks fine, because Bonjour
+// resolves "something.local". On Windows it yields a NetBIOS name like
+// DESKTOP-ABC123 that an iPhone usually cannot resolve at all, so the pairing
+// link pointed at a host the phone could never reach.
+//
+// Connecting a UDP socket sends no packets; it only makes the OS choose a
+// route, and therefore a source address. That source address is the right
+// answer, and it works the same way on every platform.
+std::string primaryLanAddress() {
+    const int sock = static_cast<int>(::socket(AF_INET, SOCK_DGRAM, 0));
+    if (sock < 0) return {};
+
+    sockaddr_in probe{};
+    probe.sin_family = AF_INET;
+    probe.sin_port = htons(53);
+    probe.sin_addr.s_addr = inet_addr("203.0.113.1");   // TEST-NET-3: never routed
+
+    std::string result;
+    if (::connect(sock, reinterpret_cast<sockaddr*>(&probe), sizeof(probe)) == 0) {
+        sockaddr_in local{};
+        sm_socklen_t len = sizeof(local);
+        if (::getsockname(sock, reinterpret_cast<sockaddr*>(&local), &len) == 0) {
+            char text[INET_ADDRSTRLEN] = {0};
+            if (::inet_ntop(AF_INET, &local.sin_addr, text, sizeof(text)) != nullptr) {
+                result = text;
+            }
+        }
+    }
+    SM_CLOSE_SOCK(sock);
+    if (result == "0.0.0.0") result.clear();
+    return result;
+}
+
+// Everything else this machine is reachable by, so the user has something to
+// try when the primary guess is the wrong network (VPNs and Hyper-V switches
+// both love to win the routing table).
+std::vector<std::string> otherLocalAddresses(const std::string& primary) {
+    std::vector<std::string> out;
+    char host[256] = {0};
+    if (::gethostname(host, sizeof(host) - 1) != 0) return out;
+
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* res = nullptr;
+    if (::getaddrinfo(host, nullptr, &hints, &res) != 0 || res == nullptr) return out;
+
+    for (addrinfo* p = res; p != nullptr; p = p->ai_next) {
+        char text[INET_ADDRSTRLEN] = {0};
+        auto* v4 = reinterpret_cast<sockaddr_in*>(p->ai_addr);
+        if (::inet_ntop(AF_INET, &v4->sin_addr, text, sizeof(text)) == nullptr) continue;
+        const std::string addr = text;
+        if (addr == primary || addr.rfind("127.", 0) == 0) continue;
+        if (std::find(out.begin(), out.end(), addr) == out.end()) out.push_back(addr);
+    }
+    ::freeaddrinfo(res);
+    return out;
+}
+
 std::string localAddressHint() {
-    // Good enough for a QR on a LAN; the desktop app enumerates properly.
+    const std::string ip = primaryLanAddress();
+    if (!ip.empty()) return ip;
+    // No usable route: fall back to the hostname rather than printing nothing.
     char host[256] = {0};
     if (::gethostname(host, sizeof(host) - 1) == 0 && host[0]) return host;
     return "127.0.0.1";
@@ -342,7 +420,17 @@ int main(int argc, char** argv) {
     std::printf("  output     %s\n", opt.outWav.c_str());
     std::printf("\n  pairing code  %s   (expires in 5 minutes)\n", offer.code.c_str());
     std::printf("  session       %s\n", offer.sessionId.c_str());
-    std::printf("  qr            %s\n\n", offer.qrUri.c_str());
+    std::printf("  qr            %s\n", offer.qrUri.c_str());
+    {
+        const auto others = otherLocalAddresses(localAddressHint());
+        if (!others.empty()) {
+            std::printf("\n  If the phone cannot reach %s, this PC is also at:",
+                        localAddressHint().c_str());
+            for (const auto& a : others) std::printf(" %s", a.c_str());
+            std::printf("\n");
+        }
+    }
+    std::printf("\n");
     std::fflush(stdout);
 
     // --- audio loop ---------------------------------------------------------
