@@ -100,3 +100,54 @@ jobs:
           name: SmartMic-Service
           path: staging/
           if-no-files-found: error
+
+  # One download that installs everything: driver + service + a single script.
+  package:
+    runs-on: windows-2022
+    needs: [build-driver, build-service]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download the driver
+        uses: actions/download-artifact@v4
+        with:
+          name: SmartMic-Driver
+          path: raw-driver
+
+      - name: Download the service
+        uses: actions/download-artifact@v4
+        with:
+          name: SmartMic-Service
+          path: raw-service
+
+      - name: Assemble the setup package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path setup\driver, setup\service | Out-Null
+
+          # The driver artifact is the whole msbuild output folder; take only
+          # the files an install actually needs.
+          $src = if (Test-Path raw-driver\smartmic\smartmic.sys) { "raw-driver\smartmic" } else { "raw-driver" }
+          foreach ($f in @("smartmic.sys","smartmic.inf","smartmic.cat","SmartMicTestCert.cer","install-device.ps1")) {
+            $p = Join-Path $src $f
+            if (-not (Test-Path $p)) { throw "the driver package is missing $f" }
+            Copy-Item $p setup\driver\ -Force
+          }
+
+          Copy-Item raw-service\* setup\service\ -Recurse -Force
+          if (-not (Test-Path setup\service\smartmic-service.exe)) { throw "smartmic-service.exe is missing" }
+
+          Copy-Item windows\installer\Install-SmartMic.bat   setup\ -Force
+          Copy-Item windows\installer\Uninstall-SmartMic.bat setup\ -Force
+          Copy-Item windows\installer\README.txt             setup\ -Force
+          Copy-Item docs\REMOTE-ACCESS.md                     setup\ -Force
+
+          Get-ChildItem setup -Recurse -File | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Upload the setup package
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartMic-Setup
+          path: setup/
+          if-no-files-found: error
