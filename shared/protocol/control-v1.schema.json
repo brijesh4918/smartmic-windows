@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartmic.local/schemas/control-v1.json",
+  "title": "SmartMic control protocol v1",
+  "description": "Phone <-> Windows service control channel. Media travels over WebRTC/SRTP, never here. One schema is the source of truth for the C++, Kotlin, Swift and Dart types.",
+  "type": "object",
+  "required": ["protocolVersion", "sessionId", "messageId", "seq", "timestamp", "deviceId", "type"],
+  "additionalProperties": false,
+  "properties": {
+    "protocolVersion": { "type": "integer", "const": 1 },
+    "sessionId": { "type": "string", "description": "Per-connection; dies with the connection so a captured message cannot be replayed into a later one." },
+    "messageId": { "type": "string", "format": "uuid" },
+    "seq": { "type": "integer", "minimum": 0, "description": "Monotonic per session. Anything at or below the last accepted seq is dropped: replay and reorder protection in one field." },
+    "timestamp": { "type": "integer", "description": "Unix ms on the sender's clock, checked against a bounded window." },
+    "deviceId": { "type": "string", "description": "Stable public identity of the sender." },
+    "type": {
+      "enum": ["HELLO", "AUTH", "CAPABILITIES", "PING", "PONG",
+               "START_PTT", "PTT_PREPARING", "PTT_READY", "STOP_PTT", "PTT_STOPPED",
+               "SET_MODE", "SET_LOCAL_SOURCE", "GET_STATUS", "STATUS", "ERROR"]
+    },
+    "payload": { "type": "object" }
+  },
+  "$defs": {
+    "HELLO": {
+      "type": "object",
+      "required": ["publicKey", "displayName"],
+      "properties": {
+        "publicKey": { "type": "string", "contentEncoding": "base64", "description": "Ed25519 public key." },
+        "displayName": { "type": "string", "maxLength": 64 },
+        "platform": { "enum": ["android", "ios", "windows"] }
+      }
+    },
+    "AUTH": {
+      "type": "object",
+      "required": ["signature"],
+      "properties": {
+        "signature": { "type": "string", "contentEncoding": "base64", "description": "Signature over the handshake transcript bound to the session key and the DTLS fingerprint." },
+        "pakeMessage": { "type": "string", "contentEncoding": "base64", "description": "Present only during pairing." }
+      }
+    },
+    "CAPABILITIES": {
+      "type": "object",
+      "properties": {
+        "driverReady": { "type": "boolean" },
+        "serviceVersion": { "type": "string" },
+        "driverVersion": { "type": "string" },
+        "modes": { "type": "array", "items": { "enum": ["Auto", "PhoneOnly", "LocalOnly", "Mute"] } },
+        "localInputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "isDefault": { "type": "boolean" }
+            }
+          },
+          "description": "Never contains the SmartMic endpoint itself."
+        }
+      }
+    },
+    "START_PTT": {
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string", "description": "Repeats of the same requestId are the same press; makes START_PTT idempotent." }
+      }
+    },
+    "PTT_READY": {
+      "type": "object",
+      "required": ["acceptedAt"],
+      "properties": {
+        "acceptedAt": { "type": "integer", "description": "Sent only once the router has real phone audio; the phone must not display LIVE before this." },
+        "routerState": { "enum": ["PHONE_ACTIVE"] }
+      }
+    },
+    "STOP_PTT": {
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string" },
+        "reason": { "enum": ["release", "cancel", "background", "interruption", "route_change"] }
+      }
+    },
+    "PING": {
+      "type": "object",
+      "properties": {
+        "pttActive": { "type": "boolean", "description": "Liveness while PTT is held. Absence for phoneLostTimeoutMs triggers failback." }
+      }
+    },
+    "SET_MODE": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": { "mode": { "enum": ["Auto", "PhoneOnly", "LocalOnly", "Mute"] } }
+    },
+    "SET_LOCAL_SOURCE": {
+      "type": "object",
+      "required": ["deviceId"],
+      "properties": { "deviceId": { "type": "string", "description": "Rejected with ERROR/INVALID_SOURCE if it names the SmartMic endpoint." } }
+    },
+    "STATUS": {
+      "type": "object",
+      "properties": {
+        "routerState": { "enum": ["LOCAL_ACTIVE", "PHONE_ARMING", "PHONE_ACTIVE", "RETURNING_TO_LOCAL", "PHONE_ONLY", "LOCAL_ONLY", "MUTED", "ERROR_RECOVERY"] },
+        "mode": { "enum": ["Auto", "PhoneOnly", "LocalOnly", "Mute"] },
+        "localSourceId": { "type": "string" },
+        "localSourceName": { "type": "string" },
+        "driverReady": { "type": "boolean" },
+        "rttMs": { "type": "number" },
+        "levelDbfs": { "type": "number", "description": "A meter value, not audio." }
+      }
+    },
+    "ERROR": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code": { "enum": ["UNAUTHENTICATED", "REVOKED", "VERSION_MISMATCH", "PAIRING_EXPIRED",
+                           "PAIRING_THROTTLED", "INVALID_SOURCE", "ARM_TIMEOUT", "INTERNAL"] },
+        "message": { "type": "string", "description": "Human readable, never contains key material or audio." }
+      }
+    }
+  }
+}

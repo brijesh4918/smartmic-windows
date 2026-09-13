@@ -1,0 +1,50 @@
+name: Build SmartMic Windows Driver
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-driver:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Download Windows Driver Kit (WDK)
+        run: curl -L -o wdksetup.exe "https://go.microsoft.com/fwlink/?linkid=2272225"
+
+      - name: Install Windows Driver Kit (WDK)
+        run: .\wdksetup.exe /q
+
+      - name: Build Driver
+        working-directory: windows/driver
+        run: .\build-driver.bat
+
+      - name: Upload compiled driver artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartMic-Driver
+          path: windows/driver/x64/Release/
+
+  build-service:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -A x64
+
+      - name: Build Windows Service
+        run: cmake --build build --config Release
+
+      - name: Upload compiled service artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartMic-Service
+          path: build/apps/Release/smartmic-service.exe
