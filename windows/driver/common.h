@@ -69,19 +69,7 @@ typedef struct {
 } KSDATAFORMAT_WAVEFORMATEXTENSIBLE, *PKSDATAFORMAT_WAVEFORMATEXTENSIBLE;
 #endif
 
-#ifndef _KSDATARANGE_AUDIO_
-#define _KSDATARANGE_AUDIO_
-typedef struct {
-    KSDATARANGE     DataRange;
-    ULONG           MaximumChannels;
-    ULONG           MinimumBitsPerSample;
-    ULONG           MaximumBitsPerSample;
-    ULONG           MinimumSampleFrequency;
-    ULONG           MaximumSampleFrequency;
-} KSDATARANGE_AUDIO, *PKSDATARANGE_AUDIO;
-#endif
 
-/* KSDATAFORMAT_DSOUND is used by portcls.h internally */
 #ifndef _KSDATAFORMAT_DSOUND_
 #define _KSDATAFORMAT_DSOUND_
 typedef struct {
